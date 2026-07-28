@@ -1,0 +1,18 @@
+# Drivers Directory
+
+This directory contains user-facing workflow drivers.
+
+Each driver should have:
+- manifest.yaml  - Input/output declaration
+- driver.py      - Implementation
+- verify.py      - Outcome verification
+- README.md      - Usage documentation
+
+Commands every driver must support:
+- plan     - Show what would be done
+- dry-run  - Execute reads, preview writes
+- execute  - Run the workflow
+- verify   - Confirm the outcome
+- rollback - Reverse changes if possible
+
+See docs/architecture.md for driver guidelines.

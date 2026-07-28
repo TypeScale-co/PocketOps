@@ -1,0 +1,43 @@
+name: cli
+kind: transport
+version: 1.0.0
+
+description: |
+  Command-line interface transport for executing CLI tools
+  with structured output capture and error handling.
+
+capabilities:
+  - execute
+  - capture-output
+  - timeout
+  - dry-run
+
+supports:
+  dry_run: true
+  dry_run_method: "Returns command that would be executed"
+
+dependencies:
+  runtime:
+    - python>=3.12
+  packages: []
+
+configuration:
+  - name: timeout
+    type: float
+    default: 60.0
+    description: Command timeout in seconds
+
+  - name: shell
+    type: bool
+    default: false
+    description: Run command through shell
+
+  - name: capture
+    type: bool
+    default: true
+    description: Capture stdout and stderr
+
+trust:
+  status: draft
+  last_verified: null
+  notes: "Scaffold - implement before use"

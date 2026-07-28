@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+#
+# PocketOps Verification Script
+#
+# Runs all verification checks for components.
+#
+
+set -e
+
+echo "PocketOps Verification"
+echo "======================"
+echo
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+PASSED=0
+FAILED=0
+
+# Run Python tests if pytest is available
+if command -v pytest &> /dev/null; then
+    echo "Running tests..."
+    if pytest -v --tb=short 2>/dev/null; then
+        echo -e "${GREEN}✓${NC} Tests passed"
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "${RED}✗${NC} Tests failed"
+        FAILED=$((FAILED + 1))
+    fi
+else
+    echo -e "${YELLOW}!${NC} pytest not installed, skipping tests"
+fi
+
+# Verify manifests are valid YAML
+echo
+echo "Verifying manifests..."
+
+verify_manifest() {
+    local file="$1"
+    if python3 -c "import yaml; yaml.safe_load(open('$file'))" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} $file"
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "  ${RED}✗${NC} $file - invalid YAML"
+        FAILED=$((FAILED + 1))
+    fi
+}
+
+# Find all manifest files
+for manifest in $(find . -name "manifest.yaml" -type f 2>/dev/null); do
+    verify_manifest "$manifest"
+done
+
+# Summary
+echo
+echo "Verification Summary"
+echo "-------------------"
+echo -e "Passed: ${GREEN}$PASSED${NC}"
+echo -e "Failed: ${RED}$FAILED${NC}"
+echo
+
+if [ $FAILED -eq 0 ]; then
+    echo -e "${GREEN}All verifications passed!${NC}"
+    exit 0
+else
+    echo -e "${RED}Some verifications failed${NC}"
+    exit 1
+fi

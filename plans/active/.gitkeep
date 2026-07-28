@@ -1,0 +1,11 @@
+# Active Plans
+
+This directory contains execution plans for current requests.
+
+Plan files describe:
+- What the user wants accomplished
+- Which components will be used
+- What side effects will occur
+- How the outcome will be verified
+
+Plans are moved to archive/ after completion.

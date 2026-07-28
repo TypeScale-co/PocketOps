@@ -1,0 +1,11 @@
+# Environment Configurations
+
+Environment-specific configuration files.
+
+Examples:
+- development.yaml
+- staging.yaml
+- production.yaml
+
+IMPORTANT: Never commit files containing secrets.
+Use environment variables for credentials.

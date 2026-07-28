@@ -1,0 +1,12 @@
+# Current Runs
+
+This directory contains run records for active executions.
+
+Run files document:
+- When execution started/completed
+- What inputs were used
+- What outputs were produced
+- What side effects occurred
+- Verification results
+
+Runs are moved to archive/ after completion.

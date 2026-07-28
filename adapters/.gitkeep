@@ -1,0 +1,22 @@
+# Adapters Directory
+
+This directory contains third-party system adapters.
+
+Each adapter should have:
+- manifest.yaml  - Capability declaration
+- adapter.py     - Implementation
+- types.py       - Domain types
+- verify.py      - Verification helpers
+- README.md      - Usage documentation
+
+Example adapters to create:
+- hubspot/       - HubSpot CRM
+- slack/         - Slack messaging
+- google-docs/   - Google Docs
+- google-drive/  - Google Drive
+- gitlab/        - GitLab
+- github/        - GitHub
+- aws-s3/        - AWS S3
+- postgres/      - PostgreSQL database
+
+See docs/architecture.md for adapter guidelines.

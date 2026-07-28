@@ -1,0 +1,42 @@
+# Example Environment Configuration
+# Copy to config/environments/development.yaml and customize
+
+# Environment name
+environment: development
+
+# Default timeouts (seconds)
+timeouts:
+  http: 30.0
+  cli: 60.0
+  sql: 30.0
+
+# Retry configuration
+retry:
+  max_attempts: 3
+  backoff_multiplier: 2.0
+  max_backoff: 60.0
+
+# Logging
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Approval overrides (for development/testing)
+approvals:
+  # Set to true to auto-approve preview-required operations
+  auto_approve_preview: false
+  # Set to true to auto-approve explicit-required operations (DANGEROUS)
+  auto_approve_explicit: false
+
+# Dry run defaults
+dry_run:
+  # Always dry-run first, even for read operations
+  always: false
+  # Show detailed request/response in dry-run
+  verbose: true
+
+# Paths
+paths:
+  plans: plans/
+  runs: runs/
+  evidence: runs/current/evidence/

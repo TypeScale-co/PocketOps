@@ -1,0 +1,49 @@
+name: browser
+kind: transport
+version: 1.0.0
+
+description: |
+  Browser automation transport using Playwright for web
+  interaction when APIs are not available.
+
+capabilities:
+  - navigate
+  - click
+  - type
+  - screenshot
+  - extract
+  - wait
+  - dry-run
+
+supports:
+  dry_run: true
+  dry_run_method: "Returns actions that would be performed"
+
+dependencies:
+  runtime:
+    - python>=3.12
+  packages:
+    - playwright>=1.40
+  system:
+    - chromium  # via playwright install
+
+configuration:
+  - name: headless
+    type: bool
+    default: true
+    description: Run browser in headless mode
+
+  - name: timeout
+    type: float
+    default: 30.0
+    description: Default timeout for operations
+
+  - name: screenshot_on_error
+    type: bool
+    default: true
+    description: Capture screenshot on errors
+
+trust:
+  status: draft
+  last_verified: null
+  notes: "Scaffold - implement before use"

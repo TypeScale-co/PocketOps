@@ -1,0 +1,49 @@
+name: ssh
+kind: transport
+version: 1.0.0
+
+description: |
+  SSH transport for remote command execution with key-based
+  authentication and secure file transfer.
+
+capabilities:
+  - execute
+  - file-transfer
+  - port-forward
+  - dry-run
+
+supports:
+  dry_run: true
+  dry_run_method: "Returns command that would be executed remotely"
+
+dependencies:
+  runtime:
+    - python>=3.12
+  packages:
+    - paramiko>=3.0
+
+configuration:
+  - name: hostname
+    type: string
+    required: true
+    description: Remote hostname
+
+  - name: username
+    type: string
+    required: true
+    description: SSH username
+
+  - name: key_path
+    type: string
+    required: false
+    description: Path to SSH private key
+
+  - name: timeout
+    type: float
+    default: 30.0
+    description: Connection timeout in seconds
+
+trust:
+  status: draft
+  last_verified: null
+  notes: "Scaffold - implement before use"

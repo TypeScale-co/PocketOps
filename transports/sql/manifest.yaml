@@ -1,0 +1,46 @@
+name: sql
+kind: transport
+version: 1.0.0
+
+description: |
+  SQL database transport for executing queries with connection
+  pooling, parameterized queries, and transaction support.
+
+capabilities:
+  - query
+  - execute
+  - transaction
+  - parameterized
+  - dry-run
+
+supports:
+  dry_run: true
+  dry_run_method: "Returns query that would be executed with parameters"
+
+dependencies:
+  runtime:
+    - python>=3.12
+  packages:
+    - psycopg2>=2.9  # PostgreSQL
+    # or: sqlite3 (built-in)
+
+configuration:
+  - name: connection_string
+    type: string
+    required: true
+    description: Database connection string
+
+  - name: pool_size
+    type: int
+    default: 5
+    description: Connection pool size
+
+  - name: timeout
+    type: float
+    default: 30.0
+    description: Query timeout in seconds
+
+trust:
+  status: draft
+  last_verified: null
+  notes: "Scaffold - implement before use"

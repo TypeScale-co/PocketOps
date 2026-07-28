@@ -1,0 +1,28 @@
+# PocketOps Requirements
+# Install with: pip install -r requirements.txt
+
+# Core dependencies
+httpx>=0.28
+tenacity>=8.0
+pyyaml>=6.0
+pydantic>=2.0
+
+# Optional: Browser automation
+# playwright>=1.40
+
+# Optional: PostgreSQL
+# psycopg2-binary>=2.9
+
+# Optional: SSH
+# paramiko>=3.0
+
+# Optional: Slack SDK
+# slack-sdk>=3.0
+
+# Optional: Google APIs
+# google-auth>=2.0
+# google-api-python-client>=2.0
+
+# Development
+# pytest>=8.0
+# pytest-asyncio>=0.23

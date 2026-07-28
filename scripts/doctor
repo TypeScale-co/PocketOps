@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+#
+# PocketOps Doctor Script
+#
+# Checks system health and reports issues.
+#
+
+set -e
+
+echo "PocketOps System Check"
+echo "======================"
+echo
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+ISSUES=0
+
+# Helper function
+check() {
+    local name="$1"
+    local status="$2"
+    local message="$3"
+
+    # Pad name to 40 chars
+    printf "  %-40s" "$name"
+
+    if [ "$status" = "ok" ]; then
+        echo -e "${GREEN}✓${NC}"
+    elif [ "$status" = "warn" ]; then
+        echo -e "${YELLOW}!${NC} $message"
+    else
+        echo -e "${RED}✗${NC} $message"
+        ISSUES=$((ISSUES + 1))
+    fi
+}
+
+# Python
+echo "Runtime:"
+if command -v python3 &> /dev/null; then
+    PYTHON_VERSION=$(python3 --version 2>&1 | cut -d' ' -f2)
+    check "Python $PYTHON_VERSION" "ok"
+else
+    check "Python" "fail" "not found"
+fi
+
+# Virtual environment
+if [ -n "$VIRTUAL_ENV" ]; then
+    check "Virtual environment" "ok"
+else
+    check "Virtual environment" "warn" "not activated"
+fi
+
+# Python packages
+echo
+echo "Packages:"
+
+check_package() {
+    local pkg="$1"
+    if python3 -c "import $pkg" 2>/dev/null; then
+        local version=$(python3 -c "import $pkg; print(getattr($pkg, '__version__', 'installed'))" 2>/dev/null || echo "installed")
+        check "$pkg $version" "ok"
+    else
+        check "$pkg" "fail" "not installed"
+    fi
+}
+
+check_package "httpx"
+check_package "yaml"
+check_package "pydantic"
+
+# Optional packages
+echo
+echo "Optional Packages:"
+
+check_optional_package() {
+    local pkg="$1"
+    local import_name="${2:-$1}"
+    if python3 -c "import $import_name" 2>/dev/null; then
+        check "$pkg" "ok"
+    else
+        check "$pkg" "warn" "not installed (optional)"
+    fi
+}
+
+check_optional_package "playwright"
+check_optional_package "psycopg2"
+check_optional_package "paramiko"
+
+# CLI tools
+echo
+echo "CLI Tools:"
+
+check_cli() {
+    local cmd="$1"
+    if command -v "$cmd" &> /dev/null; then
+        local version=$($cmd --version 2>&1 | head -n1)
+        check "$cmd" "ok"
+    else
+        check "$cmd" "warn" "not found (optional)"
+    fi
+}
+
+if command -v git &> /dev/null; then
+    check "git $(git --version | cut -d' ' -f3)" "ok"
+else
+    check "git" "fail" "not found"
+fi
+
+check_cli "gh"
+check_cli "aws"
+check_cli "gcloud"
+
+# Credentials
+echo
+echo "Credentials:"
+
+check_credential() {
+    local var="$1"
+    local adapter="$2"
+
+    if [ -n "${!var}" ]; then
+        check "$var" "ok"
+    else
+        check "$var" "warn" "not set"
+    fi
+}
+
+check_credential "HUBSPOT_ACCESS_TOKEN" "hubspot"
+check_credential "SLACK_BOT_TOKEN" "slack"
+check_credential "GITHUB_TOKEN" "github"
+check_credential "GITLAB_TOKEN" "gitlab"
+
+# Network (basic check)
+echo
+echo "Network:"
+
+check_network() {
+    local host="$1"
+    if ping -c 1 -W 2 "$host" &> /dev/null || curl -s --max-time 2 "https://$host" &> /dev/null; then
+        check "$host" "ok"
+    else
+        check "$host" "warn" "unreachable"
+    fi
+}
+
+check_network "api.hubapi.com"
+check_network "slack.com"
+check_network "api.github.com"
+
+# Directories
+echo
+echo "Directories:"
+[ -d "plans/active" ] && check "plans/active" "ok" || check "plans/active" "fail" "missing"
+[ -d "plans/archive" ] && check "plans/archive" "ok" || check "plans/archive" "fail" "missing"
+[ -d "runs/current" ] && check "runs/current" "ok" || check "runs/current" "fail" "missing"
+[ -d "runs/archive" ] && check "runs/archive" "ok" || check "runs/archive" "fail" "missing"
+
+# Summary
+echo
+if [ $ISSUES -eq 0 ]; then
+    echo -e "${GREEN}All checks passed!${NC}"
+else
+    echo -e "${RED}$ISSUES issue(s) found${NC}"
+    echo "Run ./scripts/bootstrap to fix common issues"
+fi
+
+exit $ISSUES

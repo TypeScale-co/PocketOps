@@ -1,0 +1,40 @@
+name: filesystem
+kind: transport
+version: 1.0.0
+
+description: |
+  Local filesystem transport for file operations with
+  safe path handling and atomic writes.
+
+capabilities:
+  - read
+  - write
+  - list
+  - delete
+  - atomic-write
+  - dry-run
+
+supports:
+  dry_run: true
+  dry_run_method: "Returns operations that would be performed"
+
+dependencies:
+  runtime:
+    - python>=3.12
+  packages: []
+
+configuration:
+  - name: base_path
+    type: string
+    required: false
+    description: Base path for relative operations
+
+  - name: create_dirs
+    type: bool
+    default: true
+    description: Create parent directories if needed
+
+trust:
+  status: draft
+  last_verified: null
+  notes: "Scaffold - implement before use"

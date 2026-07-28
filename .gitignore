@@ -1,0 +1,64 @@
+# PocketOps .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Environment and secrets
+.env
+.env.*
+*.key
+*.pem
+*-credentials.json
+service-account*.json
+secrets/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Run evidence (may contain sensitive data)
+runs/current/evidence/
+runs/archive/*/evidence/
+
+# Local configuration (keep examples)
+config/environments/*.yaml
+!config/environments/.gitkeep
+!config/examples/
+
+# Browser automation
+playwright-report/
+test-results/
