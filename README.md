@@ -6,19 +6,21 @@
 
 ## For Users
 
-**Just describe what you want.** The agent handles all technical details.
+**Describe the outcome you want.** The agent handles all technical details.
 
-You say: _"Send my HubSpot tasks to the #sales Slack channel every Monday"_
+You say: _"Find CRM opportunities that need follow-up and draft the next email."_
 
 The agent:
 
 -   Figures out what's needed
--   Builds the integrations
+-   Builds reusable capabilities
 -   Shows you a preview before sending
 -   Asks for approval on anything that affects external systems
 -   Runs the workflow and confirms it worked
 
 You'll never be asked technical questions about APIs, code, or configuration. If something fails, the agent fixes it automatically. You only get involved for decisions that matter to you.
+
+Every outcome also teaches PocketOps a reusable capability: fetch email, read spreadsheets, search documents, summarize support tickets, post Slack updates, query databases, draft follow-ups, create reports. Start with small useful outcomes, then ask for larger outcomes that combine what already works across systems.
 
 ---
 
@@ -33,7 +35,7 @@ The framework assumes the user may not be technical. The agent owns all technica
 ## How It Works
 
 ```
-User describes outcome
+User describes an outcome
         ↓
 Agent searches for existing capabilities
         ↓
@@ -43,10 +45,10 @@ Agent shows preview → User approves
         ↓
 Agent executes → Agent verifies result
         ↓
-Workflow saved for future use
+Capability or workflow saved for future use
 ```
 
-The result is not one-off commands. It's an auditable automation that can be reused, maintained, and composed into larger workflows.
+The result is not one-off commands. Each useful outcome leaves behind auditable capabilities that can be reused, maintained, and composed into larger workflows.
 
 ---
 
@@ -86,9 +88,10 @@ Each layer has one job. Dependencies flow downward only.
 
 ### For Users
 
-1. Describe what you want to accomplish
-2. The agent handles the rest
-3. Approve any actions that affect external systems
+1. Start with a small outcome that would be useful on its own
+2. Let the agent build and verify the capabilities behind it
+3. Ask for larger outcomes that combine capabilities that already work
+4. Approve any actions that affect external systems
 
 ### For Setup
 
@@ -113,7 +116,7 @@ ln -s AGENTS.md CLAUDE.md
 | ---------------------------- | ---------------------------------------------- |
 | **Agent owns complexity**    | User never asked technical questions           |
 | **Agent owns debugging**     | Failures fixed automatically (up to 5 retries) |
-| **Reusable components**      | First request builds; later requests compose   |
+| **Capability library**       | First request builds; later requests compose   |
 | **Safety through structure** | Dry-run, approval, verification on all writes  |
 | **Manifests as context**     | Fast capability discovery without reading code |
 
@@ -162,65 +165,65 @@ Both share: always-on `AGENTS.md`, progressive skill disclosure, reusable verifi
 
 ## Example Prompts
 
-PocketOps lets you describe the work you want done. It figures out the software, integrations, and implementation.
+PocketOps works best when you think like a builder, even if you are not technical. Ask for small useful outcomes first; as those work for you, ask for larger outcomes that combine them. The agent turns each request into reusable capabilities behind the scenes.
 
-### Analyze Sales Data
+### Start With Email Triage
 
-> Pull our sales data from Salesforce and Stripe, identify the biggest reasons revenue changed this quarter, and create a presentation I can share with leadership.
-
----
-
-### Investigate a Customer
-
-> Find everything we know about Acme Corp across Salesforce, Slack, Gmail, Notion, and Google Drive. Summarize our relationship, open issues, and recommend next steps.
+> Show me recent customer emails grouped by account and sorted by urgency.
 
 ---
 
-### HR Audit
+### Summarize Support Themes
 
-> Review our employee handbook, PTO policy, and onboarding documents. Find inconsistencies, outdated information, and policies that should be updated.
-
----
-
-### Prepare for a Meeting
-
-> Read the documents related to tomorrow's planning meeting, summarize the important decisions that need to be made, identify unresolved questions, and draft talking points.
+> Summarize this week's Zendesk tickets by customer, product area, urgency, and repeated complaint.
 
 ---
 
-### Compare Contracts
+### Read Spreadsheet Updates
 
-> Compare these two vendor agreements and explain what changed, what new risks were introduced, and whether anything looks unusual.
-
----
-
-### Build a Dashboard
-
-> Create a dashboard showing our key business metrics by combining data from Stripe, QuickBooks, Salesforce, and Google Analytics.
+> Read the latest finance spreadsheet and show me accounts where spend changed by more than 20%.
 
 ---
 
-### Generate a Report
+### Search Team Knowledge
 
-> Create a quarterly business review using data from our CRM, accounting software, and support system. Include charts, trends, risks, and recommendations.
-
----
-
-### Research a Topic
-
-> Read these fifty documents about our product roadmap, organize them by topic, summarize each theme, and identify conflicting decisions.
+> Search our Google Drive docs and Slack history for Acme Corp, then summarize open questions, promises, and recent decisions.
 
 ---
 
-### Clean Up Our Data
+### Post a Status Update
 
-> Review our CRM and identify duplicate customers, incomplete records, inconsistent naming, and opportunities to improve data quality.
+> Turn this summary into a short Slack update for the customer-success channel and show me a preview.
 
 ---
 
-### Figure It Out
+### Combine Into a Customer Briefing
 
-> I need to understand why customer churn increased over the last three months. Use whatever systems you need, gather the evidence, and explain what happened.
+> Prepare a briefing for my Acme Corp meeting using recent email, support tickets, Slack history, shared docs, CRM notes, and billing changes.
+
+---
+
+### Combine Into an Account Risk Review
+
+> Find accounts with rising support volume, falling spend, unresolved promises, or no recent owner activity, then rank the risks and recommend next steps.
+
+---
+
+### Combine Into a Weekly Operating Report
+
+> Create a weekly operating report from Stripe, Salesforce, Zendesk, Slack, and our database, then email the draft to me for review.
+
+---
+
+### Review Data Quality Across Systems
+
+> Compare customer names and IDs across Salesforce, Stripe, Zendesk, and our database, then show duplicates and mismatches.
+
+---
+
+### Combine Into Approved Cleanup
+
+> Show me a cleanup preview across the affected systems, then update only the records I approve.
 
 ---
 
