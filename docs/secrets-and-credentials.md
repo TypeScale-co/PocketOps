@@ -15,17 +15,24 @@ Safe credential handling in PocketOps.
 
 ---
 
+## Collection
+
+Use the credential collection script to gather credentials from users:
+
+```bash
+./scripts/collect-credential SLACK_BOT_TOKEN "Slack Bot Token"
+```
+
+The script opens a browser window with a form—token never appears in conversation history.
+
+---
+
 ## Storage
 
-### Environment Variables (Preferred)
-```bash
-export HUBSPOT_ACCESS_TOKEN="your-token"
-export SLACK_BOT_TOKEN="xoxb-your-token"
-```
-
-### .env Files (Development)
+### .env Files (Default)
 ```
 HUBSPOT_ACCESS_TOKEN=your-token
+SLACK_BOT_TOKEN=xoxb-your-token
 ```
 
 **Always** gitignore: `.env`, `*.key`, `*-credentials.json`

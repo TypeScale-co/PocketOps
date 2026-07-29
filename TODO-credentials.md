@@ -6,24 +6,24 @@ Evolution of credential management for non-technical users.
 
 ## Current: MVP (v1)
 
-**Approach**: Guided prompting + .env storage
+**Approach**: Guided prompting + browser-based collection + .env storage
 
 **How it works**:
 
 1. Agent detects missing credential
 2. Agent walks user through getting token (step-by-step instructions)
-3. User pastes token in chat
-4. Agent writes to `.env` file
-5. Agent verifies token works
+3. Agent runs `./scripts/collect-credential ENV_VAR "Label"`
+4. Browser opens with simple form, user pastes token
+5. Script writes to `.env` file with restrictive permissions
+6. Agent verifies token works
 
 **Limitations**:
 
--   Token appears in chat history
 -   User must navigate vendor UI manually
 -   No automatic refresh for expired tokens
 -   Requires user to follow multi-step instructions
 
-**Status**: Implemented in `managing-credentials` skill
+**Status**: Implemented in `managing-credentials` skill + `scripts/collect-credential`
 
 ---
 
@@ -44,9 +44,9 @@ Evolution of credential management for non-technical users.
 
 **Benefits**:
 
--   Token never appears in chat
+-   No manual token copying
 -   Standard OAuth flow (familiar to users)
--   More secure
+-   Automatic token refresh possible
 
 **Requirements**:
 

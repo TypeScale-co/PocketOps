@@ -40,8 +40,8 @@ During **PREFLIGHT** and **BUILD** phases when system requirements must be insta
 - Ask user to paste credentials in chat
 
 **Always:**
-- Use environment variables
-- Reference setup docs
+- Use `./scripts/collect-credential` for secure collection
+- Store in `.env` file
 - Verify validity without exposing value
 
 ## Preflight Checklist
