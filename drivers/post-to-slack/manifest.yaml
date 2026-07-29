@@ -1,0 +1,82 @@
+name: post-to-slack
+kind: driver
+version: 1.0.0
+
+description: |
+  Post a message to a Slack channel with preview, approval, and verification.
+  Reference driver demonstrating the full execution lifecycle.
+
+depends_on:
+  adapters:
+    - name: slack
+      version: ">=1.0"
+      operations: [post_message, get_message, delete_message]
+
+inputs:
+  - name: channel
+    type: string
+    required: true
+    description: Slack channel ID (e.g., C1234567890)
+
+  - name: message
+    type: string
+    required: true
+    description: Message text to post
+
+  - name: thread_ts
+    type: string
+    required: false
+    description: Thread timestamp for replies
+
+commands:
+  plan:
+    description: Show what would be done
+    effects: []
+
+  dry-run:
+    description: Verify channel access, preview message
+    effects: [read]
+
+  execute:
+    description: Post the message
+    effects: [read, write]
+    approval: preview-required
+
+  verify:
+    description: Confirm message was posted
+    effects: [read]
+
+  rollback:
+    description: Delete the posted message
+    supported: true
+    method: "Delete message via Slack API"
+
+outputs:
+  - name: message_id
+    type: string
+    description: Slack message timestamp (ts)
+
+  - name: channel
+    type: string
+    description: Channel where message was posted
+
+  - name: permalink
+    type: string
+    description: Direct link to the message
+
+effects:
+  - operation: post_slack_message
+    risk: write
+    scope: external
+    reversibility: compensatable
+
+verification:
+  method: retrieve-and-compare
+  checks:
+    - message_exists
+    - content_matches
+    - timestamp_recent
+
+trust:
+  status: integration-verified
+  last_verified: 2026-07-28

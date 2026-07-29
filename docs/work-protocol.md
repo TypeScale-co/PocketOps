@@ -4,59 +4,110 @@ Execution lifecycle for all PocketOps workflows.
 
 ---
 
-## Lifecycle Overview
+## Lifecycle
 
 ```
 DISCOVER → CLARIFY → PLAN → PREFLIGHT → BUILD
                                 ↑          ↓
-                                │      EXECUTE → VERIFY
-                                │         ↓         ↓
-                                └── DIAGNOSE ← OBSERVE
-                                        ↓
-                                       FIX
+                                │      DRY-RUN → APPROVAL → EXECUTE
+                                │                              ↓
+                                │                           VERIFY
+                                │                          ↓     ↓
+                                └──── FIX ← DIAGNOSE ← OBSERVE   COMPLETE → ARCHIVE
 ```
 
-The iteration loop (OBSERVE → DIAGNOSE → FIX → retry) is mandatory. On failure, the agent fixes autonomously.
+The iteration loop (OBSERVE → DIAGNOSE → FIX → retry) runs **up to 5 times** before escalating.
 
 ---
 
 ## Phases
 
-### 1. DISCOVER
-Understand what the user wants. Produce outcome contract.
+### DISCOVER
+Understand user intent. Produce outcome contract.
 
-### 2. CLARIFY
-Resolve unknowns. Ask user only for business decisions.
+**Output**: `plans/active/<id>.yaml` with outcome, sources, destinations, unknowns.
 
-### 3. PLAN
-Design execution approach. Search existing components first.
+### CLARIFY
+Resolve unknowns. Ask user **only** for business decisions.
 
-### 4. PREFLIGHT
-Verify prerequisites: dependencies, credentials, network.
+**Ask**: "Which Slack channel?" / "Include completed tasks?"
+**Never ask**: "Which API?" / "What auth flow?"
 
-### 5. BUILD
-Create/extend components. Build inside-out: transports → adapters → drivers.
+### PLAN
+Design execution approach.
 
-### 6. DRY RUN
+1. Search existing drivers
+2. Check existing adapters
+3. Check existing transports
+4. Identify what must be built
+5. Document side effects and verification strategy
+
+**Output**: `plans/active/<id>-plan.md`
+
+### PREFLIGHT
+Verify all prerequisites before building.
+
+- Dependencies installed?
+- Credentials valid?
+- Network reachable?
+- Permissions sufficient?
+
+**If blocked**: Fix issues before proceeding.
+
+### BUILD
+Create or extend components. Build inside-out:
+
+1. System dependencies
+2. Transports (if needed)
+3. Adapters (if needed)
+4. Driver
+
+### DRY-RUN
 Execute reads, preview writes. No external changes.
 
-### 7. APPROVAL
-Get user authorization before external writes.
+**Output**: Human-readable preview of what would happen.
 
-### 8. EXECUTE
-Run the approved workflow. Capture all output.
+### APPROVAL
+Get user consent before external writes.
 
-### 9. VERIFY
-Confirm real-world outcome. Strong verification required.
+| Risk Level | Approval |
+|------------|----------|
+| Read only | Automatic |
+| Local file | Automatic |
+| External write | Preview + confirm |
+| Production write | Explicit "yes" |
+| Destructive | Explicit + confirm phrase |
 
-### 10. ITERATE (on failure)
-OBSERVE → DIAGNOSE → FIX → RETRY. Agent owns debugging loop.
+### EXECUTE
+Run the approved workflow using the saved driver (not ad-hoc commands).
 
-### 11. COMPLETE
-Finalize, report to user.
+**Capture**: All output, timestamps, IDs.
 
-### 12. ARCHIVE
-Move plan and run to archive.
+### VERIFY
+Confirm real-world outcome through strong verification.
+
+**Strong**: Retrieve posted message, confirm content matches.
+**Weak** (insufficient): API returned 200.
+
+### ITERATE (on failure)
+
+```
+OBSERVE → DIAGNOSE → FIX → RETRY
+```
+
+**Max 5 attempts.** After 5 failures without progress, escalate to user with full diagnostic context.
+
+See `iterating-to-completion` skill.
+
+### COMPLETE
+Finalize successful execution. Report to user.
+
+### ARCHIVE
+Move artifacts to archive:
+```
+plans/active/* → plans/archive/
+runs/current/* → runs/archive/
+```
 
 ---
 
@@ -68,11 +119,9 @@ request_id: <id>
 driver: <name>
 
 timestamps:
-  discovered_at: <time>
   planned_at: <time>
   executed_at: <time>
   verified_at: <time>
-  completed_at: <time>
 
 inputs: {}
 outputs: {}
@@ -86,7 +135,11 @@ verification:
   status: verified | partial | failed
   checks: []
 
-iterations: []
+iterations:
+  - attempt: 1
+    result: failure | success
+    diagnosis: <if failed>
+    fix: <if failed>
 ```
 
 ---
@@ -94,13 +147,17 @@ iterations: []
 ## Invariants
 
 ### Never Skip
-- DISCOVER (understand intent)
-- DRY RUN (preview external writes)
-- APPROVAL (consent for production writes)
-- VERIFY (confirm results)
+- DRY-RUN (for external writes)
+- APPROVAL (for external writes)
+- VERIFY (always confirm outcome)
 
-### Must Record
+### Always Record
 - Plan (what was intended)
 - Run (what happened)
 - Verification (what was confirmed)
 - Iterations (if retry needed)
+
+### Iteration Limit
+- Max 5 attempts
+- Then escalate with full context
+- Never iterate indefinitely

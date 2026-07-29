@@ -2,7 +2,22 @@
 
 **A capability-oriented framework for agent-built business automation.**
 
-Users describe outcomes in ordinary language. Agents discover the environment, build reusable transports and adapters, compose auditable drivers, preview side effects, execute workflows, and verify the real-world result.
+---
+
+## For Users
+
+**Just describe what you want.** The agent handles all technical details.
+
+You say: *"Send my HubSpot tasks to the #sales Slack channel every Monday"*
+
+The agent:
+- Figures out what's needed
+- Builds the integrations
+- Shows you a preview before sending
+- Asks for approval on anything that affects external systems
+- Runs the workflow and confirms it worked
+
+You'll never be asked technical questions about APIs, code, or configuration. If something fails, the agent fixes it automatically. You only get involved for decisions that matter to you.
 
 ---
 
@@ -10,146 +25,58 @@ Users describe outcomes in ordinary language. Agents discover the environment, b
 
 PocketOps is a sibling to [PocketSWE](https://github.com/TypeScale-co/PocketSWE). Where PocketSWE constrains how agents build maintainable software, PocketOps constrains how agents safely build and execute business automations.
 
-The framework assumes the user may not be technical. The agent owns all technical complexity—identifying dependencies, designing components, implementing integrations—while the user owns the desired outcome.
+The framework assumes the user may not be technical. The agent owns all technical complexity while the user owns the desired outcome.
 
 ---
 
-## Core Idea
+## How It Works
 
-**User says:**
-> Pull my HubSpot todos, send the weekly report to Slack, and push this week's Google Doc report.
+```
+User describes outcome
+        ↓
+Agent searches for existing capabilities
+        ↓
+Agent builds what's missing (reusable components)
+        ↓
+Agent shows preview → User approves
+        ↓
+Agent executes → Agent verifies result
+        ↓
+Workflow saved for future use
+```
 
-**Agent thinks:**
-1. Do I need to install dependencies?
-2. Do suitable transports exist?
-3. Do suitable adapters exist?
-4. Does an existing driver handle this?
-5. What must I build?
-
-**Agent builds:**
-- Reusable transport (if needed)
-- Reusable adapter (if needed)
-- Reusable driver with dry-run/verify/rollback support
-
-**Agent executes:**
-- Shows preview
-- Gets approval
-- Runs workflow
-- Verifies outcome
-- Archives the run
-
-The result is not a pile of one-off commands. It's an auditable automation that can be reused, maintained, and composed into larger workflows.
+The result is not one-off commands. It's an auditable automation that can be reused, maintained, and composed into larger workflows.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      DRIVERS                            │
-│         User-facing workflows and outcomes              │
-│   (weekly-report, sync-tasks, publish-document, ...)    │
-└─────────────────────────┬───────────────────────────────┘
-                          │ composes
-┌─────────────────────────▼───────────────────────────────┐
-│                      ADAPTERS                           │
-│         Third-party system interfaces                   │
-│   (HubSpot, Slack, Google Docs, AWS, GitLab, ...)       │
-└─────────────────────────┬───────────────────────────────┘
-                          │ depends on
-┌─────────────────────────▼───────────────────────────────┐
-│                     TRANSPORTS                          │
-│           Communication mechanisms                      │
-│   (HTTP, SQL, CLI, SSH, Filesystem, Browser, ...)       │
-└─────────────────────────┬───────────────────────────────┘
-                          │ uses
-┌─────────────────────────▼───────────────────────────────┐
-│               SYSTEM DEPENDENCIES                       │
-│         Installed tools, runtimes, credentials          │
-└─────────────────────────────────────────────────────────┘
+DRIVERS         — User-facing workflows (weekly-report, sync-tasks)
+    ↓ composes
+ADAPTERS        — Third-party interfaces (HubSpot, Slack, Google Docs)
+    ↓ depends on
+TRANSPORTS      — Communication mechanisms (HTTP, SQL, CLI)
+    ↓ uses
+DEPENDENCIES    — Installed tools, runtimes, credentials
 ```
 
-Each layer has clear responsibilities:
-
-- **Transports** know *how* to communicate but nothing about business meaning
-- **Adapters** expose third-party concepts through stable interfaces
-- **Drivers** represent user-facing outcomes by composing adapters
-
----
-
-## Execution Lifecycle
-
-```
-DISCOVER → CLARIFY → PLAN → PREFLIGHT → BUILD → STATIC VERIFY
-                                                      ↓
-DRY RUN → APPROVAL → EXECUTE → OUTCOME VERIFY → COMPLETE → ARCHIVE
-```
-
-Every request produces:
-- A **plan** documenting intent and approach
-- A **run record** documenting what actually happened
-- **Verification evidence** confirming the outcome
+Each layer has one job. Dependencies flow downward only.
 
 ---
 
 ## Repository Structure
 
 ```
-.
-├── AGENTS.md                    # Always-on agent contract
-├── README.md                    # This file
-│
-├── .agents/
-│   └── skills/                  # Phase-specific agent guidance
-│       ├── understanding-requests/
-│       ├── planning-workflows/
-│       ├── managing-dependencies/
-│       ├── building-transports/
-│       ├── building-adapters/
-│       ├── building-drivers/
-│       ├── executing-drivers/
-│       └── verifying-outcomes/
-│
-├── docs/                        # Full-text documentation
-│   ├── architecture.md
-│   ├── work-protocol.md
-│   ├── verification.md
-│   ├── safety-and-approvals.md
-│   ├── secrets-and-credentials.md
-│   ├── system-dependencies.md
-│   ├── user-request-contract.md
-│   └── terminology.md
-│
-├── transports/                  # Communication mechanisms
-│   ├── http/
-│   ├── sql/
-│   ├── cli/
-│   ├── ssh/
-│   ├── filesystem/
-│   └── browser/
-│
-├── adapters/                    # Third-party interfaces
-│   └── (hubspot, slack, google-docs, aws, gitlab, ...)
-│
-├── drivers/                     # User-facing workflows
-│   └── archive/
-│
-├── plans/
-│   ├── active/                  # Current request plans
-│   └── archive/                 # Completed plans
-│
-├── runs/
-│   ├── current/                 # Active execution records
-│   └── archive/                 # Historical runs
-│
-├── config/
-│   ├── environments/            # Environment-specific config
-│   └── examples/                # Configuration templates
-│
-└── scripts/
-    ├── bootstrap                # Initial setup
-    ├── doctor                   # Health checks
-    └── verify                   # Run verification suite
+├── AGENTS.md              # Always-on agent contract (start here)
+├── .agents/skills/        # Phase-specific guidance (9 skills)
+├── docs/                  # Reference documentation
+├── transports/            # HTTP, SQL, CLI, SSH, filesystem, browser
+├── adapters/              # Third-party system interfaces
+├── drivers/               # User-facing workflows
+├── plans/                 # Execution plans (active + archive)
+├── runs/                  # Run records (current + archive)
+└── scripts/               # bootstrap, doctor, verify
 ```
 
 ---
@@ -158,66 +85,64 @@ Every request produces:
 
 ### For Users
 
-1. Clone or copy this repository into your project
-2. Run `./scripts/bootstrap` to verify system requirements
-3. Describe what you want to accomplish
-4. The agent handles the rest
+1. Describe what you want to accomplish
+2. The agent handles the rest
+3. Approve any actions that affect external systems
 
-### For Agent Tool Configuration
+### For Setup
 
-**Claude Code:**
 ```bash
-mkdir -p .claude
-ln -s ../.agents/skills .claude/skills
+./scripts/bootstrap    # Set up environment
+./scripts/doctor       # Check system health
+```
+
+### For Agent Tools
+
+Most tools auto-discover `AGENTS.md`. For Claude Code:
+```bash
 ln -s AGENTS.md CLAUDE.md
 ```
 
-**Other tools:** Most agent tools auto-discover `AGENTS.md` in the repository root.
+---
+
+## Key Principles
+
+| Principle | Meaning |
+|-----------|---------|
+| **Agent owns complexity** | User never asked technical questions |
+| **Agent owns debugging** | Failures fixed automatically (up to 5 retries) |
+| **Reusable components** | First request builds; later requests compose |
+| **Safety through structure** | Dry-run, approval, verification on all writes |
+| **Manifests as context** | Fast capability discovery without reading code |
 
 ---
 
-## Design Principles
+## Skills
 
-### The Agent Owns Technical Complexity
+| Skill | Purpose |
+|-------|---------|
+| `understanding-requests` | Parse user intent |
+| `planning-workflows` | Design approach, find existing components |
+| `managing-dependencies` | Install and verify requirements |
+| `managing-credentials` | Guide users through credential setup |
+| `building-transports` | Create communication mechanisms |
+| `building-adapters` | Create third-party interfaces |
+| `building-drivers` | Create user-facing workflows |
+| `executing-drivers` | Run with approval gates |
+| `verifying-outcomes` | Confirm real-world results |
+| `iterating-to-completion` | Autonomous retry loop (max 5 attempts) |
 
-The user describes outcomes. The agent:
-- Identifies required dependencies
-- Designs component architecture
-- Implements integrations
-- Handles errors and retries
-- Manages credentials safely
-- Verifies results
+---
 
-The user is never asked technical questions about APIs, authentication flows, data structures, or code organization.
+## Documentation
 
-### Reusability Over One-Off Scripts
-
-Every workflow should leave the environment better than it found it:
-
-- **First request**: Agent builds adapters and transports
-- **Second request**: Agent composes existing components into new driver
-- **Third request**: Agent discovers existing driver, creates only a new plan
-
-Over time, high-level business requests become cheaper, safer, and more reliable.
-
-### Manifests as Context Spine
-
-Every component declares a machine-readable manifest describing:
-- Capabilities and operations
-- Dependencies and requirements
-- Input/output contracts
-- Side effects and risks
-- Trust and verification status
-
-Agents inspect manifests before implementation files, enabling fast capability discovery.
-
-### Safety Through Structure
-
-- All external writes require preview and approval
-- Destructive actions require explicit confirmation
-- Every execution has a dry-run mode
-- Every run is recorded with verification evidence
-- Rollback or compensation strategies are documented
+| Document | Purpose |
+|----------|---------|
+| `docs/architecture.md` | Layer rules |
+| `docs/work-protocol.md` | Execution lifecycle |
+| `docs/verification.md` | Outcome verification |
+| `docs/safety-and-approvals.md` | Side effect classification |
+| `docs/terminology.md` | Definitions |
 
 ---
 
@@ -228,14 +153,8 @@ Agents inspect manifests before implementation files, enabling fast capability d
 | Domain | Application construction | Business automation |
 | User | Developer | Non-technical professional |
 | Output | Maintainable software | Auditable workflows |
-| Layers | Domain → Services → Ports → Adapters | Transports → Adapters → Drivers |
-| Verification | North Star feature specs | Observable outcome confirmation |
 
-Both frameworks share:
-- Always-on `AGENTS.md` contract
-- Progressive skill disclosure
-- Detailed documentation on demand
-- Emphasis on reusable, verified components
+Both share: always-on `AGENTS.md`, progressive skill disclosure, reusable verified components.
 
 ---
 

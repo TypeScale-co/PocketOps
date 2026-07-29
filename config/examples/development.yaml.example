@@ -1,0 +1,32 @@
+# PocketOps Development Configuration
+# Copy to config/environments/development.yaml
+
+environment: development
+
+# Timeouts (seconds)
+timeouts:
+  http: 30
+  cli: 60
+  sql: 30
+
+# Retry behavior
+retry:
+  max_attempts: 3
+  backoff_multiplier: 2.0
+  max_backoff: 60
+
+# Iteration limits
+iteration:
+  max_attempts: 5
+  escalate_after: 5
+
+# Logging
+logging:
+  level: INFO
+
+# Development overrides (DO NOT use in production)
+development:
+  # Skip approval for preview-required operations
+  auto_approve_preview: false
+  # Show verbose dry-run output
+  verbose_dry_run: true

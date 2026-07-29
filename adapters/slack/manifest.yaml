@@ -1,0 +1,125 @@
+name: slack
+kind: adapter
+version: 1.0.0
+
+description: |
+  Slack workspace adapter for posting messages, reading channels,
+  and managing message lifecycle.
+
+depends_on:
+  transports:
+    - name: http
+      version: ">=1.0"
+
+credentials:
+  - name: SLACK_BOT_TOKEN
+    type: environment_variable
+    required: true
+    format: "xoxb-..."
+    scopes:
+      - chat:write
+      - channels:read
+      - channels:history
+
+provides:
+  post_message:
+    description: Post a message to a channel
+    input:
+      channel:
+        type: string
+        required: true
+        description: Channel ID (e.g., C1234567890)
+      text:
+        type: string
+        required: true
+        description: Message text (supports Slack markdown)
+      thread_ts:
+        type: string
+        required: false
+        description: Thread timestamp for replies
+    output:
+      type: object
+      fields:
+        message_id: string
+        channel: string
+        timestamp: string
+    effects:
+      risk: write
+      scope: external
+      reversible: compensatable
+    errors:
+      - channel_not_found
+      - not_in_channel
+      - rate_limited
+      - invalid_auth
+
+  get_message:
+    description: Retrieve a specific message
+    input:
+      channel:
+        type: string
+        required: true
+      message_id:
+        type: string
+        required: true
+    output:
+      type: object
+      fields:
+        text: string
+        timestamp: string
+        user: string
+    effects:
+      risk: read
+      scope: external
+    errors:
+      - message_not_found
+      - channel_not_found
+
+  delete_message:
+    description: Delete a message
+    input:
+      channel:
+        type: string
+        required: true
+      message_id:
+        type: string
+        required: true
+    output:
+      type: object
+      fields:
+        deleted: boolean
+    effects:
+      risk: destructive
+      scope: external
+      reversible: irreversible
+    errors:
+      - message_not_found
+      - cant_delete_message
+
+  list_channels:
+    description: List accessible channels
+    input:
+      types:
+        type: string
+        required: false
+        default: "public_channel,private_channel"
+    output:
+      type: array
+      items:
+        type: object
+        fields:
+          id: string
+          name: string
+          is_private: boolean
+    effects:
+      risk: read
+      scope: external
+    errors:
+      - invalid_auth
+
+trust:
+  status: integration-verified
+  last_verified: 2026-07-28
+  known_limitations:
+    - "Cannot post to channels bot is not a member of"
+    - "Rate limited to ~1 message per second per channel"

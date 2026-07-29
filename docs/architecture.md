@@ -1,162 +1,119 @@
 # Architecture
 
-Architectural layers, boundaries, and rules for PocketOps.
+Layer rules and boundaries for PocketOps.
 
 ---
 
-## Layer Overview
+## Layers
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                       DRIVERS                           │
-│              User-facing workflow outcomes              │
-└─────────────────────────┬───────────────────────────────┘
-                          │ composes
-┌─────────────────────────▼───────────────────────────────┐
-│                      ADAPTERS                           │
-│           Third-party system interfaces                 │
-└─────────────────────────┬───────────────────────────────┘
-                          │ depends on
-┌─────────────────────────▼───────────────────────────────┐
-│                     TRANSPORTS                          │
-│             Communication mechanisms                    │
-└─────────────────────────┬───────────────────────────────┘
-                          │ uses
-┌─────────────────────────▼───────────────────────────────┐
-│               SYSTEM DEPENDENCIES                       │
-│         Installed tools, runtimes, credentials          │
-└─────────────────────────────────────────────────────────┘
+DRIVERS         — User-facing workflows
+    ↓ composes
+ADAPTERS        — Third-party interfaces
+    ↓ depends on
+TRANSPORTS      — Communication mechanisms
+    ↓ uses
+DEPENDENCIES    — Tools, runtimes, credentials
 ```
+
+Dependencies flow **downward only**. Never import from a higher layer.
 
 ---
 
-## Layer Rules
+## Layer Responsibilities
 
 ### System Dependencies
-
-Installed tools, runtimes, packages, and credentials.
-
-- Document all in `docs/system-dependencies.md`
-- Use virtual environments for packages
-- Never store credentials in code
+Installed tools, runtimes, packages, credentials.
+- Document in `docs/system-dependencies.md`
+- Credentials via environment variables only
 
 ### Transports
+**HOW** to communicate. No business concepts.
 
-Low-level communication. Know **HOW** to communicate.
+Handles: connection, auth injection, timeouts, retries, pagination primitives, response capture
 
-**Handles**: connection, auth injection, timeouts, retries, pagination primitives, response capture, error normalization
-
-**Does NOT handle**: business concepts, vendor schemas, domain logic
-
-**Allowed deps**: System dependencies only
+Does NOT handle: business logic, vendor schemas, domain types
 
 ### Adapters
+**WHAT** a system offers. Hides vendor details.
 
-Third-party interfaces. Know **WHAT** a system offers.
+Handles: business operations, response normalization, error translation
 
-**Handles**: business-meaningful operations, vendor API hiding, response normalization, error translation
-
-**Does NOT handle**: other adapters, workflow logic, data decisions
-
-**Allowed deps**: Transports, system dependencies, shared domain types
+Does NOT handle: other adapters, workflow logic, data decisions
 
 ### Drivers
+User-facing **OUTCOMES**. Composes adapters.
 
-User-facing outcomes. **Compose** adapters.
+Handles: workflow orchestration, commands (plan/dry-run/execute/verify/rollback)
 
-**Handles**: workflow orchestration, user commands (plan/dry-run/execute/verify/rollback), human-readable output
-
-**Does NOT handle**: raw API calls, protocol details
-
-**Allowed deps**: Adapters, other drivers, shared domain types
-
----
-
-## Dependency Direction
-
-Dependencies flow **downward only**:
-
-```
-Drivers → Adapters → Transports → System Dependencies
-```
-
-Never import from a higher layer.
+Does NOT handle: raw API calls, protocol details
 
 ---
 
 ## Component Structure
 
-### Transport
 ```
-transports/<name>/
-├── manifest.yaml
-├── transport.py
-├── types.py
-├── tests/
-└── README.md
+transports/<name>/          adapters/<name>/          drivers/<name>/
+├── manifest.yaml           ├── manifest.yaml         ├── manifest.yaml
+├── transport.py            ├── adapter.py            ├── driver.py
+├── types.py                ├── types.py              ├── README.md
+├── tests/                  ├── verify.py             └── tests/
+└── README.md               ├── tests/
+                            └── README.md
 ```
-
-### Adapter
-```
-adapters/<name>/
-├── manifest.yaml
-├── adapter.py
-├── types.py
-├── verify.py
-├── tests/
-└── README.md
-```
-
-### Driver
-```
-drivers/<name>/
-├── manifest.yaml
-├── driver.py
-├── verify.py
-├── tests/
-└── README.md
-```
-
----
-
-## Trust Lifecycle
-
-```
-draft → implemented → locally-verified → integration-verified → production-verified
-                                                                        ↓
-                                                              deprecated / broken / archived
-```
-
-| Status | Agent Behavior |
-|--------|----------------|
-| production-verified | Compose normally |
-| integration-verified | Compose, then dry-run |
-| draft | Inspect and verify before use |
-| broken | Do not use; repair or replace |
-
----
-
-## Prohibited Patterns
-
-1. Transport containing business logic
-2. Adapter depending on another adapter
-3. Driver calling APIs directly
-4. Business types leaking across layers
-5. Global mutable state
-6. Hardcoded configuration
-7. Skipping dry-run for writes
-8. Mixing read and write in same operation
 
 ---
 
 ## Manifests
 
-Every component declares a manifest enabling:
+Every component declares a `manifest.yaml`:
 
-- Capability discovery
-- Dependency resolution
-- Type-aware composition
-- Risk analysis
-- Trust verification
+```yaml
+name: <name>
+kind: transport | adapter | driver
+version: <semver>
+description: <what it does>
 
-Manifests are the **context spine**. Inspect manifests before implementation files.
+depends_on:
+  transports: []    # For adapters
+  adapters: []      # For drivers
+
+provides:           # For adapters
+  <operation>:
+    input: {}
+    output: {}
+    effects: {risk, scope}
+
+inputs: []          # For drivers
+outputs: []
+effects: []
+
+trust:
+  status: <trust-state>
+```
+
+Manifests enable capability discovery without reading code.
+
+---
+
+## Trust States
+
+See `docs/terminology.md` for definitions.
+
+| State | Use |
+|-------|-----|
+| `production-verified` | Compose normally |
+| `integration-verified` | Compose, then dry-run |
+| `draft` | Verify before using |
+| `broken` | Do not use |
+
+---
+
+## Prohibited Patterns
+
+1. Transport with business logic
+2. Adapter depending on adapter
+3. Driver calling APIs directly
+4. Business types leaking across layers
+5. Hardcoded configuration
+6. Skipping dry-run for writes

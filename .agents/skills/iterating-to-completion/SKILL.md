@@ -1,29 +1,36 @@
 ---
 name: iterating-to-completion
-description: Autonomous feedback loops until task succeeds
+description: Autonomous feedback loops until task succeeds (max 5 attempts)
 ---
 
 # Iterating to Completion
 
-Autonomously iterate through failures until the task succeeds—without bouncing technical problems to the user.
+Autonomously iterate through failures until success—without bouncing technical problems to the user.
+
+## Critical Rule
+
+**Maximum 5 attempts.** After 5 failures without progress, escalate to user with full diagnostic context. Never iterate indefinitely.
 
 ## Core Principle
 
 **The agent owns the debugging loop.**
 
 When something fails:
-1. Collect structured feedback
-2. Diagnose root cause
-3. Fix at appropriate layer
-4. Retry
-5. Repeat until success
+1. Observe (capture structured feedback)
+2. Diagnose (identify root cause)
+3. Fix (at appropriate layer)
+4. Retry (from clean state)
+5. Repeat (max 5 times)
 
-## The Iteration Loop
+## The Loop
 
 ```
-ATTEMPT → OBSERVE → DIAGNOSE → FIX → RETRY → (repeat)
-                                         ↓
-                                      SUCCESS
+ATTEMPT → OBSERVE → DIAGNOSE → FIX → RETRY
+    ↑                                  │
+    └──────────────────────────────────┘
+              (max 5 times)
+                   ↓
+    After 5 failures: ESCALATE with full context
 ```
 
 ## OBSERVE
@@ -32,69 +39,79 @@ Capture everything on failure:
 - Exit code
 - Stdout/stderr
 - Exceptions with stack traces
-- API responses
-- Timing
+- API responses and status codes
+- Timing information
 
-Structure the observation:
+Structure it:
 ```yaml
 observation:
   attempt: 1
   result: failure
   failure_point: adapters/hubspot/list_tasks
   symptoms:
-    - "KeyError: 'results'"
-    - "Response had 'data' key instead"
+    - "401 Unauthorized"
+    - "Token may be expired"
 ```
 
 ## DIAGNOSE
 
-Determine root cause **without involving the user**.
+Identify root cause **without involving user**.
 
 | Symptom | Likely Cause | Fix Layer |
 |---------|--------------|-----------|
-| `ModuleNotFoundError` | Package not installed | System |
-| `Connection refused` | Service down or wrong URL | Transport |
+| `ModuleNotFoundError` | Package missing | System |
+| `Connection refused` | Wrong URL or service down | Transport |
 | `401 Unauthorized` | Invalid/expired token | Credential |
-| `403 Forbidden` | Missing permission scope | Credential |
-| `404 Not Found` | Wrong endpoint or resource | Adapter |
-| `429 Too Many Requests` | Rate limited, no retry | Transport |
-| `KeyError` / `TypeError` | Response schema changed | Adapter |
+| `403 Forbidden` | Missing scope | Credential |
+| `404 Not Found` | Wrong endpoint | Adapter |
+| `429 Too Many Requests` | No retry logic | Transport |
+| `KeyError` / `TypeError` | Response format changed | Adapter |
 | Empty result | Filter too restrictive | Driver |
 
 ## FIX
 
 Apply fix at the **lowest appropriate layer**:
 
-1. Don't patch the driver if the adapter is broken
-2. Don't patch the adapter if the transport is broken
-3. Make fixes reusable (future workflows benefit)
-4. Verify fix before retrying
-5. Update manifests if capabilities change
+- Don't patch driver if adapter is broken
+- Don't patch adapter if transport is broken
+- Make fixes reusable (future workflows benefit)
+- Verify fix before retrying
+- Update manifest if capabilities change
 
 ## RETRY
 
 Re-execute from clean state:
-- Don't assume partial progress persisted
-- Start the driver fresh
+- Don't assume partial progress
 - Capture output again
 - Compare to previous attempt
 
 ## Escalation
 
-Escalate **only** when genuinely blocked:
+**After 5 attempts**, escalate with:
+- What was attempted
+- What failed each time
+- Diagnoses made
+- Fixes applied
+- Why agent is stuck
+
+**Good escalation**:
+> "After 5 attempts, HubSpot still returns 403. I verified the token works for account info but fails for task access. The token may lack the `crm.objects.tasks.read` scope. Could you check the token permissions in HubSpot?"
+
+**Bad escalation**:
+> "It's not working. Can you check your HubSpot settings?"
+
+**Escalate immediately (don't retry) for**:
 - Missing credential agent cannot obtain
 - Business decision required
 - Destructive fix needing approval
 
-**Never escalate for:**
+## Never Escalate For
+
 - Package installation
-- Code fixes in components
+- Code fixes in transports/adapters/drivers
 - Retry logic
 - Response parsing
-
-**Bad**: "I got a 401. Can you check your token?"
-
-**Good**: "After 3 attempts, HubSpot returns 403. The token works for account info but may lack the `crm.objects.contacts.read` scope. Could you check the token scopes?"
+- Configuration agent can detect
 
 ## Iteration Record
 
@@ -109,7 +126,7 @@ iterations:
   - attempt: 2
     result: failure
     diagnosis: "Pagination not handled"
-    fix: "Added pagination to adapter"
+    fix: "Added pagination loop"
 
   - attempt: 3
     result: success
@@ -121,8 +138,10 @@ summary:
 
 ## User Communication
 
-**During** (brief): "Encountered a pagination issue. Fixing and retrying."
+**During** (brief): "Encountered pagination issue. Fixing and retrying."
 
-**After**: "Done! It took 3 attempts—I fixed a missing package and pagination handling."
+**After success**: "Done! Took 3 attempts—fixed a missing package and pagination."
 
-**Never**: "Can you try running X?" / "What do you see when...?" / "Check your settings"
+**After 5 failures**: "I've tried 5 times and am stuck on [specific issue]. Here's what I found: [full context]. Could you help with [specific ask]?"
+
+**Never say**: "Can you try running X?" / "What do you see when...?" / "Check your settings"

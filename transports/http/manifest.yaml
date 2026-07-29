@@ -8,7 +8,6 @@ description: |
 
 capabilities:
   - request
-  - streaming
   - pagination
   - retry
   - authentication
@@ -50,6 +49,6 @@ authentication:
     description: API key in custom header
 
 trust:
-  status: implemented
-  last_verified: null
-  notes: "Scaffold - implement and verify before use"
+  status: integration-verified
+  last_verified: 2026-07-28
+  notes: "Core transport used by Slack adapter"
