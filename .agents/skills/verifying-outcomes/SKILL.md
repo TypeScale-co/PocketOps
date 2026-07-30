@@ -59,10 +59,28 @@ verification:
 
 | Status | Meaning | Next Step |
 |--------|---------|-----------|
-| `verified` | All checks passed | Complete and archive |
+| `verified` | All checks passed | Run contract review, then complete |
 | `partial` | Some checks passed | Offer repair options |
 | `not_verified` | Cannot confirm outcome | Diagnose and retry |
 | `blocked` | Cannot proceed | Wait or escalate |
+
+## Contract Review Gate
+
+**Before marking COMPLETE**, run the `reviewing-contracts` skill.
+
+This independent review catches:
+- Outcome mismatch (delivery doesn't match contract)
+- Naming dishonesty (e.g., "wells-fargo" adapter that reads CSVs)
+- Hidden user work (user must do technical tasks)
+- Synthetic verification (tested against fake data)
+
+```
+VERIFY (passed) → reviewing-contracts → COMPLETE
+                         ↓
+                    REJECTED → back to BUILD/PLAN
+```
+
+Only mark complete if review status is `approved`.
 
 ## Communicating Results
 

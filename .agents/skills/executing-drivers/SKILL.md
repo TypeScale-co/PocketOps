@@ -65,9 +65,12 @@ Run verification immediately:
 
 ## Step 6: Handle Results
 
-**On success**: Report to user, archive plan and run
+**On verification success**:
+1. Run `reviewing-contracts` skill for independent review
+2. If review approved: report to user, archive plan and run
+3. If review rejected: return to BUILD or PLAN phase
 
-**On failure**: Enter iteration loop (observe → diagnose → fix → retry)
+**On verification failure**: Enter iteration loop (observe → diagnose → fix → retry)
 
 ## Run Record Schema
 
