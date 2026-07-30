@@ -64,6 +64,22 @@ verification:
 | `not_verified` | Cannot confirm outcome | Diagnose and retry |
 | `blocked` | Cannot proceed | Wait or escalate |
 
+## Completion Status
+
+Verification status and completion status answer different questions. Record
+both, and do not overstate the latter:
+
+| Completion status | Meaning |
+|-------------------|---------|
+| `capability_built` | Reusable local capability is built; no connection is required |
+| `capability_ready_not_connected` | Real access/auth path is built, credentials are missing |
+| `capability_connected` | Credentials and live source access are verified |
+| `outcome_delivered` | The requested workflow ran and its real-world outcome is verified |
+
+Set `user_facing_status` to the same value. Contract review rejects a mismatch.
+Only `connect_capability` and `execute_workflow` can prove live source access;
+build tests alone cannot support `capability_connected` or `outcome_delivered`.
+
 ## Contract Review Gate
 
 **Before marking COMPLETE**, run the `reviewing-contracts` skill.

@@ -8,7 +8,11 @@ from pocketops.schemas.base import TrustStatus, RiskLevel, Scope
 from pocketops.schemas.transport import TransportManifest
 from pocketops.schemas.adapter import AdapterManifest
 from pocketops.schemas.driver import DriverManifest
-from pocketops.schemas.contract import OutcomeContract
+from pocketops.schemas.contract import (
+    CompletionStatus,
+    ContractType,
+    OutcomeContract,
+)
 
 __all__ = [
     "TrustStatus",
@@ -17,5 +21,7 @@ __all__ = [
     "TransportManifest",
     "AdapterManifest",
     "DriverManifest",
+    "ContractType",
+    "CompletionStatus",
     "OutcomeContract",
 ]

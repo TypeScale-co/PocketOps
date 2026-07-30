@@ -10,7 +10,7 @@ IMPORTANT: Agents declaring "done" without calling complete_run() have NOT
 actually completed the workflow. The run record will show incomplete status.
 """
 
-import os
+import subprocess
 import yaml
 from pathlib import Path
 from datetime import datetime
@@ -61,6 +61,21 @@ _FALLBACK_TERMS = (
     "sandbox only",
 )
 
+_PROTECTED_FRAMEWORK_PATHS = (
+    "AGENTS.md",
+    ".agents/",
+    "pocketops/",
+    "scripts/verify",
+)
+
+_CONNECTION_COMMANDS = {"setup-auth", "setup_auth", "authorize", "connect"}
+_MISSING_CREDENTIAL_STATUSES = {
+    "missing",
+    "not_configured",
+    "not-configured",
+    "blocked",
+}
+
 
 class RunCreationError(Exception):
     """Raised when run creation fails."""
@@ -87,7 +102,7 @@ class RunRecord:
     run_id: str
     run_file: str
     contract_id: str
-    driver: str
+    driver: Optional[str]
     created_at: str
 
 
@@ -112,9 +127,28 @@ def _find_project_root() -> Path:
     return cwd
 
 
+def _git_output(project_root: Path, *args: str) -> str:
+    """Run a read-only Git command, returning an empty string on failure."""
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=project_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return ""
+    return result.stdout.rstrip("\n")
+
+
+def _git_revision(project_root: Path) -> str:
+    return _git_output(project_root, "rev-parse", "HEAD")
+
+
 def create_run(
     contract_id: str,
-    driver: str,
+    driver: Optional[str] = None,
     effects: List[dict] = None,
     inputs: dict = None,
     project_root: Optional[str | Path] = None,
@@ -158,34 +192,44 @@ def create_run(
     try:
         from pocketops.validation import load_contract
 
-        load_contract(contract_file)
+        contract = load_contract(contract_file)
     except Exception as e:
         raise RunCreationError(
             f"Contract '{contract_id}' is invalid. Fix the outcome contract before execution.",
             details={"contract_id": contract_id, "contract_file": str(contract_file), "error": str(e)},
         ) from e
 
-    # Validate driver exists
-    driver_dir = project_root / "drivers" / driver
-    driver_manifest = driver_dir / "manifest.yaml"
-    if not driver_manifest.exists():
-        raise RunCreationError(
-            f"Driver '{driver}' not found. "
-            "You must create the driver during BUILD phase before execution.",
-            details={"driver": driver, "expected_path": str(driver_manifest)},
-        )
+    contract_type = contract.contract_type.value
+    if contract_type != "framework_change":
+        if not driver:
+            raise RunCreationError(
+                f"Contract type '{contract_type}' requires a driver.",
+                details={"contract_id": contract_id, "contract_type": contract_type},
+            )
+        driver_dir = project_root / "drivers" / driver
+        driver_manifest = driver_dir / "manifest.yaml"
+        if not driver_manifest.exists():
+            raise RunCreationError(
+                f"Driver '{driver}' not found. "
+                "You must create the driver during BUILD phase before execution.",
+                details={"driver": driver, "expected_path": str(driver_manifest)},
+            )
 
     # Generate run ID
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_id = f"{timestamp}-{driver}"
+    run_id = f"{timestamp}-{driver or contract_type}"
 
     # Create run record
     run_data = {
         "run_id": run_id,
         "contract_id": contract_id,
+        "contract_type": contract_type,
+        "target_completion_status": contract.target_completion_status.value,
+        "contract_snapshot": contract.model_dump(mode="json"),
         "driver": driver,
         "status": "created",
         "created_at": datetime.now().isoformat(),
+        "framework_baseline_revision": _git_revision(project_root),
         "inputs": inputs or {},
         "effects": effects or [],
         "outputs": {},
@@ -194,6 +238,12 @@ def create_run(
             "checks": [],
             "evidence": {},
         },
+        "connection": {
+            "status": "not_assessed",
+            "credential_status": "not_assessed",
+        },
+        "completion_status": None,
+        "user_facing_status": None,
     }
 
     # Ensure runs directory exists
@@ -306,6 +356,118 @@ def _manifest_text(path: Path) -> str:
     return " ".join(parts)
 
 
+def _is_protected_framework_path(path: str) -> bool:
+    normalized = path.strip().replace("\\", "/")
+    return any(
+        normalized == protected.rstrip("/") or normalized.startswith(protected)
+        for protected in _PROTECTED_FRAMEWORK_PATHS
+    )
+
+
+def _changed_paths(project_root: Path, baseline_revision: str) -> list[str]:
+    """Collect committed and working-tree changes made since run creation."""
+    paths: set[str] = set()
+    if baseline_revision:
+        current_revision = _git_revision(project_root)
+        if current_revision and current_revision != baseline_revision:
+            paths.update(
+                line
+                for line in _git_output(
+                    project_root,
+                    "diff",
+                    "--name-only",
+                    f"{baseline_revision}..{current_revision}",
+                ).splitlines()
+                if line
+            )
+
+    status = _git_output(
+        project_root,
+        "status",
+        "--porcelain",
+        "--untracked-files=all",
+    )
+    for line in status.splitlines():
+        if len(line) < 4:
+            continue
+        path = line[3:]
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        paths.add(path.strip('"'))
+    return sorted(paths)
+
+
+def _driver_components(
+    project_root: Path,
+    driver_name: str | None,
+) -> tuple[dict, list[tuple[str, dict]]]:
+    """Load the selected driver and its declared adapter manifests."""
+    if not driver_name:
+        return {}, []
+
+    driver_manifest = project_root / "drivers" / driver_name / "manifest.yaml"
+    if not driver_manifest.exists():
+        return {}, []
+    with open(driver_manifest) as f:
+        driver_data = yaml.safe_load(f) or {}
+
+    adapters: list[tuple[str, dict]] = []
+    dependencies = driver_data.get("depends_on", {}).get("adapters", []) or []
+    for dependency in dependencies:
+        name = dependency if isinstance(dependency, str) else dependency.get("name")
+        if not name:
+            continue
+        manifest = project_root / "adapters" / name / "manifest.yaml"
+        if not manifest.exists():
+            continue
+        with open(manifest) as f:
+            adapters.append((name, yaml.safe_load(f) or {}))
+    return driver_data, adapters
+
+
+def _commands(driver_data: dict) -> set[str]:
+    commands = driver_data.get("commands", {})
+    if isinstance(commands, dict):
+        return set(commands)
+    if isinstance(commands, list):
+        return {
+            command if isinstance(command, str) else command.get("name", "")
+            for command in commands
+        }
+    return set()
+
+
+def _adapter_has_external_read(adapter_data: dict) -> bool:
+    for operation in (adapter_data.get("provides", {}) or {}).values():
+        if not isinstance(operation, dict):
+            continue
+        effects = operation.get("effects", {})
+        if isinstance(effects, dict):
+            if (
+                effects.get("risk") == "read"
+                and effects.get("scope") in ("external", "production")
+            ):
+                return True
+        elif isinstance(effects, list):
+            if any(
+                isinstance(effect, dict)
+                and effect.get("risk") == "read"
+                and effect.get("scope") in ("external", "production")
+                for effect in effects
+            ):
+                return True
+    return False
+
+
+def _required_credentials(adapters: list[tuple[str, dict]]) -> list[str]:
+    required = []
+    for _, adapter_data in adapters:
+        for credential in adapter_data.get("credentials", []) or []:
+            if isinstance(credential, dict) and credential.get("required", True):
+                required.append(str(credential.get("name", "unnamed")))
+    return required
+
+
 def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
     """
     Run the reviewing-contracts checks programmatically.
@@ -327,6 +489,7 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
     plans_dir = project_root / "plans" / "active"
     contract_exists = False
     contract = {}
+    normalized_contract = {}
 
     if contract_id:
         contract_file = plans_dir / f"{contract_id}.yaml"
@@ -337,6 +500,12 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
             contract_exists = True
             with open(contract_file) as f:
                 contract = yaml.safe_load(f) or {}
+            from pocketops.schemas.contract import OutcomeContract
+
+            try:
+                normalized_contract = OutcomeContract(**contract).model_dump(mode="json")
+            except Exception:
+                normalized_contract = contract
             review["checks"].append({
                 "name": "plan-exists",
                 "passed": True,
@@ -401,17 +570,117 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
         })
         review["reasons"].append("Cannot review raw request preservation without contract")
 
+    contract_type = run_data.get("contract_type", "")
+    target_status = run_data.get("target_completion_status", "")
+    actual_status = run_data.get("completion_status", "")
+
+    # Check 0c: Security-relevant contract fields are fixed at run creation.
+    contract_snapshot = run_data.get("contract_snapshot", {})
+    immutable_contract_fields = (
+        "raw_request",
+        "contract_type",
+        "target_completion_status",
+        "outcome",
+        "verification",
+        "constraints",
+        "source_system_request",
+        "access_discovery",
+        "fallback_mode",
+        "driver",
+    )
+    changed_contract_fields = [
+        field
+        for field in immutable_contract_fields
+        if contract_snapshot.get(field) != normalized_contract.get(field)
+    ] if contract_exists and contract_snapshot else list(immutable_contract_fields)
+    if changed_contract_fields:
+        review["checks"].append({
+            "name": "contract-integrity",
+            "passed": False,
+            "notes": (
+                "Security-relevant contract fields changed after run creation: "
+                + ", ".join(changed_contract_fields)
+            ),
+        })
+        review["reasons"].append(
+            "Outcome contract was changed after execution began"
+        )
+    else:
+        review["checks"].append({
+            "name": "contract-integrity",
+            "passed": True,
+            "notes": "Contract matches the snapshot captured at run creation",
+        })
+
+    # Check 0d: Ordinary work may not alter the framework that judges it.
+    changed_paths = _changed_paths(
+        project_root,
+        run_data.get("framework_baseline_revision", ""),
+    )
+    protected_changes = [
+        path for path in changed_paths if _is_protected_framework_path(path)
+    ]
+    if contract_type != "framework_change" and protected_changes:
+        review["checks"].append({
+            "name": "framework-integrity",
+            "passed": False,
+            "notes": (
+                "Non-framework contract changed protected enforcement files: "
+                + ", ".join(protected_changes)
+            ),
+        })
+        review["reasons"].append(
+            "Ordinary task modified completion gates, schemas, review rules, or agent protocol"
+        )
+    else:
+        review["checks"].append({
+            "name": "framework-integrity",
+            "passed": True,
+            "notes": (
+                "Protected framework changes are covered by framework_change contract"
+                if protected_changes
+                else "No protected framework changes detected"
+            ),
+        })
+
     # Check 1: Outcome match - does delivery match contract?
     if contract_exists:
-        # Check if driver was specified and used
         expected_driver = contract.get("driver")
         actual_driver = run_data.get("driver")
 
-        if expected_driver and actual_driver and expected_driver == actual_driver:
+        if actual_status != target_status:
+            review["checks"].append({
+                "name": "outcome-match",
+                "passed": False,
+                "notes": (
+                    f"Run reports completion_status '{actual_status or 'missing'}'; "
+                    f"contract targets '{target_status}'"
+                ),
+            })
+            review["reasons"].append(
+                "Run completion status does not match the reviewed contract target"
+            )
+        elif (
+            contract_type != "framework_change"
+            and expected_driver
+            and actual_driver
+            and expected_driver == actual_driver
+        ):
             review["checks"].append({
                 "name": "outcome-match",
                 "passed": True,
-                "notes": f"Driver '{actual_driver}' matches contract",
+                "notes": (
+                    f"Driver '{actual_driver}' and completion status "
+                    f"'{actual_status}' match contract"
+                ),
+            })
+        elif contract_type == "framework_change":
+            review["checks"].append({
+                "name": "outcome-match",
+                "passed": True,
+                "notes": (
+                    f"Framework change reports reviewed status '{actual_status}'"
+                ),
             })
         elif expected_driver and not actual_driver:
             review["checks"].append({
@@ -437,7 +706,13 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
     # Check 2: Naming honesty - do component names match what they do?
     # This checks if adapters exist and have appropriate trust status
     driver_name = run_data.get("driver")
-    if driver_name:
+    if contract_type == "framework_change":
+        review["checks"].append({
+            "name": "naming-honesty",
+            "passed": True,
+            "notes": "Framework changes do not require a workflow driver",
+        })
+    elif driver_name:
         driver_dir = project_root / "drivers" / driver_name
         driver_manifest = driver_dir / "manifest.yaml"
         if driver_manifest.exists():
@@ -541,7 +816,98 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
             "notes": "No user technical work required",
         })
 
-    # Check 4: Verification authenticity - was real system used?
+    # Check 4: Capability lifecycle requirements.
+    driver_data, adapter_manifests = _driver_components(project_root, driver_name)
+    adapter_names = [name for name, _ in adapter_manifests]
+    required_credentials = _required_credentials(adapter_manifests)
+    has_external_adapter_read = any(
+        _adapter_has_external_read(data) for _, data in adapter_manifests
+    )
+    driver_commands = _commands(driver_data)
+    has_connection_command = bool(driver_commands & _CONNECTION_COMMANDS)
+    connection = run_data.get("connection", {})
+    connection_status = connection.get("status", "")
+    credential_status = connection.get("credential_status", "")
+
+    capability_passed = True
+    capability_notes = "Contract type has no capability-build requirements"
+    if contract_type == "build_capability":
+        failures = []
+        if not driver_data or not adapter_manifests:
+            failures.append("driver and adapter manifests must exist")
+        if _source_system_requested(contract) and not has_external_adapter_read:
+            failures.append("adapter must declare a real external read operation")
+        if required_credentials and not has_connection_command:
+            failures.append(
+                "driver must expose setup-auth, authorize, or connect command"
+            )
+        if required_credentials and target_status == "capability_built":
+            failures.append(
+                "credential-dependent capability must use capability_ready_not_connected "
+                "until connected"
+            )
+        if target_status == "capability_ready_not_connected":
+            if connection_status != "not_connected":
+                failures.append("connection.status must be not_connected")
+            if credential_status not in _MISSING_CREDENTIAL_STATUSES:
+                failures.append(
+                    "connection.credential_status must record missing or blocked credentials"
+                )
+        capability_passed = not failures
+        capability_notes = (
+            "Capability has a real access path, adapter/driver, auth command, and "
+            f"truthful connection state; adapters: {', '.join(adapter_names)}"
+            if capability_passed
+            else "; ".join(failures)
+        )
+    elif contract_type == "connect_capability":
+        failures = []
+        if connection_status != "connected":
+            failures.append("connection.status must be connected")
+        if credential_status not in ("valid", "configured"):
+            failures.append("connection.credential_status must be valid or configured")
+        if not has_external_adapter_read:
+            failures.append("connected capability must expose an external read operation")
+        capability_passed = not failures
+        capability_notes = (
+            "Capability connection and credentials are verified"
+            if capability_passed
+            else "; ".join(failures)
+        )
+
+    review["checks"].append({
+        "name": "capability-lifecycle",
+        "passed": capability_passed,
+        "notes": capability_notes,
+    })
+    if not capability_passed:
+        review["reasons"].append(
+            "Capability build/connect contract did not satisfy its reviewed lifecycle"
+        )
+
+    # Check 5: The user-facing claim may not overstate the terminal state.
+    user_facing_status = run_data.get("user_facing_status")
+    claim_passed = bool(
+        actual_status and user_facing_status and actual_status == user_facing_status
+    )
+    review["checks"].append({
+        "name": "completion-claim",
+        "passed": claim_passed,
+        "notes": (
+            f"User-facing status truthfully reports '{actual_status}'"
+            if claim_passed
+            else (
+                f"user_facing_status '{user_facing_status or 'missing'}' must equal "
+                f"completion_status '{actual_status or 'missing'}'"
+            )
+        ),
+    })
+    if not claim_passed:
+        review["reasons"].append(
+            "User-facing completion claim is missing or overstates delivery"
+        )
+
+    # Check 6: Verification authenticity - was the required real system used?
     verification = run_data.get("verification", {})
     verification_status = verification.get("status", "not_verified")
     raw_request = contract.get("raw_request", "") if contract_exists else ""
@@ -558,20 +924,38 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
         for effect in effects
     )
 
+    requires_live_source_evidence = (
+        contract_type in ("connect_capability", "execute_workflow")
+        and source_system_request
+    )
+
     if verification_status == "verified":
         evidence = verification.get("evidence", {})
-        if source_system_request and not has_external_read:
+        if requires_live_source_evidence and not has_external_read:
             review["checks"].append({
                 "name": "verification-authenticity",
                 "passed": False,
                 "notes": (
-                    "Raw request requires source-system data, but run effects "
-                    "show no external read from that source"
+                    f"{contract_type} requires live source-system evidence, but "
+                    "run effects show no external read from that source"
                 ),
             })
             review["reasons"].append(
                 "Verification did not prove source-system retrieval"
             )
+        elif (
+            contract_type == "build_capability"
+            and target_status == "capability_ready_not_connected"
+            and evidence
+        ):
+            review["checks"].append({
+                "name": "verification-authenticity",
+                "passed": True,
+                "notes": (
+                    "Build evidence is present; live source access is correctly "
+                    "deferred until credentials are connected"
+                ),
+            })
         elif evidence:
             review["checks"].append({
                 "name": "verification-authenticity",
@@ -616,7 +1000,7 @@ def complete_run(
     Args:
         run_id: ID of the run to complete
         project_root: Path to project root (auto-detected if not provided)
-        force: Force completion even if gates fail (records override reason)
+        force: Deprecated. Gate overrides are prohibited.
 
     Returns:
         CompletionResult with success status and details
@@ -628,17 +1012,24 @@ def complete_run(
     runs_dir = project_root / "runs" / "current"
     archive_dir = project_root / "runs" / "archive"
 
+    if force:
+        raise CompletionError(
+            gate_name="gate-integrity",
+            message=(
+                "force completion is disabled. Fix the rejected contract, review, "
+                "or evidence instead of weakening completion gates."
+            ),
+        )
+
     # Load run file
     run_file, run_data = _load_run_file(runs_dir, run_id)
 
-    # Run the reviewing-contracts checks and record them
-    if "review" not in run_data or run_data.get("review", {}).get("status") == "pending":
-        review = _run_reviewing_contracts(run_data, project_root)
-        run_data["review"] = review
+    # Always regenerate review. A prewritten approval is not trusted evidence.
+    review = _run_reviewing_contracts(run_data, project_root)
+    run_data["review"] = review
 
-        # Save updated run file with review
-        with open(run_file, "w") as f:
-            yaml.safe_dump(run_data, f, default_flow_style=False, sort_keys=False)
+    with open(run_file, "w") as f:
+        yaml.safe_dump(run_data, f, default_flow_style=False, sort_keys=False)
 
     # Build context for gate checks
     context = {
@@ -655,7 +1046,7 @@ def complete_run(
 
     failed_gates = [r for r in gate_results if not r.passed]
 
-    if not can_complete and not force:
+    if not can_complete:
         # Find the first blocking gate
         first_failure = failed_gates[0] if failed_gates else None
         raise CompletionError(
@@ -675,19 +1066,12 @@ def complete_run(
     run_data["completion"] = {
         "method": "pocketops.workflow.complete_run",
         "gates_passed": can_complete,
-        "forced": force and not can_complete,
+        "forced": False,
         "gate_results": [
             {"gate": r.gate_name, "passed": r.passed, "message": r.message}
             for r in gate_results
         ],
     }
-
-    if force and not can_complete:
-        run_data["completion"]["force_reason"] = "Operator override"
-        run_data["completion"]["failed_gates"] = [
-            {"gate": r.gate_name, "message": r.message}
-            for r in failed_gates
-        ]
 
     # Save updated run file
     with open(run_file, "w") as f:
@@ -704,7 +1088,10 @@ def complete_run(
     return CompletionResult(
         success=True,
         run_id=run_id,
-        message="Run completed successfully" if can_complete else "Run completed with force override",
+        message=(
+            f"Run completed successfully with status "
+            f"'{run_data.get('completion_status')}'"
+        ),
         gate_results=gate_results,
         archived_to=str(archived_path),
     )

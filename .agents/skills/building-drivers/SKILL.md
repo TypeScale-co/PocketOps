@@ -51,6 +51,18 @@ Every driver must support:
 | `verify` | Confirm the outcome | Read only |
 | `rollback` | Reverse changes if possible | Write |
 
+Drivers that depend on external credentials must also support at least one
+connection command:
+
+| Command | Purpose |
+|---------|---------|
+| `setup-auth` or `authorize` | Launch or guide secure credential authorization |
+| `connect` | Complete authorization and verify source access |
+
+Credential collection is agent-run. The user may click, sign in, consent, or
+paste a secret into the secure collection window; they must not edit files or
+run setup commands.
+
 ## Manifest Schema
 
 ```yaml

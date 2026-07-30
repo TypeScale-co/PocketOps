@@ -33,6 +33,8 @@ Never immediately generate a monolithic script.
 8. Design verification strategy
 9. Document rollback approach
 10. For source-system/account requests, document access discovery before any fallback
+11. Plan credential setup and connection as executable driver commands
+12. Confirm the plan does not alter framework enforcement unless contract type is `framework_change`
 
 ## Discovery Order
 
@@ -101,6 +103,23 @@ rollback:
   supported: true | partial | false
   method: <description>
 ```
+
+## Contract-Type Plan
+
+The plan must state the contract type, target completion status, and stopping
+condition.
+
+- `build_capability`: build and test reusable components. If credentials are
+  missing, include `setup-auth`, `authorize`, or `connect`, record the missing
+  state, and stop at `capability_ready_not_connected`.
+- `connect_capability`: run the credential flow and verify a real external read.
+- `execute_workflow`: run the connected capability and verify the requested
+  real-world outcome.
+- `framework_change`: reserved for explicit PocketOps framework/protocol work.
+
+Never solve an ordinary task by editing `AGENTS.md`, `.agents/`, `pocketops/`,
+or `scripts/verify`. A required enforcement change is separate
+`framework_change` work.
 
 ## Build Order
 

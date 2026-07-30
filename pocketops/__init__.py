@@ -15,6 +15,8 @@ import os
 from pocketops.schemas import (
     TransportManifest,
     AdapterManifest,
+    CompletionStatus,
+    ContractType,
     DriverManifest,
     OutcomeContract,
 )
@@ -42,6 +44,8 @@ __all__ = [
     "TransportManifest",
     "AdapterManifest",
     "DriverManifest",
+    "ContractType",
+    "CompletionStatus",
     "OutcomeContract",
     # Gates
     "Phase",

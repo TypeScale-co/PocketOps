@@ -27,6 +27,8 @@ At the **DISCOVER** phase when a user describes something they want accomplished
 id: <timestamp>-<slug>
 created_at: <ISO timestamp>
 raw_request: "<user's exact words>"
+contract_type: build_capability | connect_capability | execute_workflow | framework_change
+target_completion_status: capability_built | capability_ready_not_connected | capability_connected | outcome_delivered
 outcome: "<what should be true after completion>"
 
 verification:
@@ -77,6 +79,21 @@ driver: <driver-name>
 status: draft
 ```
 
+## Contract Type Selection
+
+Choose the type from the user's requested outcome, not from the easiest state
+the agent can reach:
+
+| User outcome | Contract type | Terminal status |
+|--------------|---------------|-----------------|
+| Create reusable automation | `build_capability` | `capability_built` or `capability_ready_not_connected` |
+| Authorize/connect an existing capability | `connect_capability` | `capability_connected` |
+| Run automation and deliver its result | `execute_workflow` | `outcome_delivered` |
+| Change PocketOps enforcement or protocol | `framework_change` | `capability_built` |
+
+Do not add boolean exemptions such as `capability_build`. Capability build is a
+reviewed contract type with its own completion gates.
+
 ## Outcome Preservation Rules
 
 Do not narrow the user's requested outcome to an easier fallback.
@@ -109,6 +126,18 @@ access_discovery:
 
 The contract must include `raw_request` so review can compare delivery against
 the original user words, not only against the rewritten contract.
+
+If `raw_request` implies account or source-system access,
+`source_system_request.requested` must be `true`. Setting it to `false` to avoid
+live-access gates is a contract violation.
+
+For credential-dependent source capabilities:
+
+- choose `build_capability` while constructing the integration;
+- require a real access path and credential/connect flow;
+- target `capability_ready_not_connected` until credentials are connected;
+- use `connect_capability` to perform and verify authorization;
+- use `execute_workflow` when the requested report or outcome is actually delivered.
 
 ## Clarification Rules
 

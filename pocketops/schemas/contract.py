@@ -5,7 +5,8 @@ Contracts define what success looks like BEFORE execution begins.
 They are the foundation of the VERIFY → COMPLETE gate.
 """
 
-from typing import Optional
+from enum import Enum
+from typing import Any, Optional
 from pydantic import BaseModel, Field, model_validator
 from datetime import datetime
 
@@ -56,6 +57,51 @@ _ACCESS_DISCOVERY_FIELDS = (
     "credential_flow",
 )
 
+_NON_VIABLE_ACCESS_STATUSES = (
+    "blocked",
+    "unavailable",
+    "not available",
+    "not checked",
+    "unchecked",
+    "checked",
+    "attempted",
+    "none",
+    "n/a",
+    "unknown",
+)
+
+_FRAMEWORK_CHANGE_TERMS = (
+    "pocketops",
+    "framework",
+    "completion gate",
+    "completion gates",
+    "gate enforcement",
+    "contract schema",
+    "review skill",
+    "review protocol",
+    "architecture",
+    "protocol",
+    "harden",
+)
+
+
+class ContractType(str, Enum):
+    """Execution contract categories with distinct completion rules."""
+
+    BUILD_CAPABILITY = "build_capability"
+    CONNECT_CAPABILITY = "connect_capability"
+    EXECUTE_WORKFLOW = "execute_workflow"
+    FRAMEWORK_CHANGE = "framework_change"
+
+
+class CompletionStatus(str, Enum):
+    """Truthful terminal states a run may report."""
+
+    CAPABILITY_BUILT = "capability_built"
+    CAPABILITY_READY_NOT_CONNECTED = "capability_ready_not_connected"
+    CAPABILITY_CONNECTED = "capability_connected"
+    OUTCOME_DELIVERED = "outcome_delivered"
+
 
 def _normalize(value: str | None) -> str:
     return (value or "").lower()
@@ -78,6 +124,10 @@ def _request_explicitly_allows_fallback(raw_request: str) -> bool:
 def _contract_uses_fallback(text: str) -> bool:
     normalized = _normalize(text)
     return _contains_any(normalized, _FALLBACK_TERMS)
+
+
+def _request_implies_framework_change(raw_request: str) -> bool:
+    return _contains_any(_normalize(raw_request), _FRAMEWORK_CHANGE_TERMS)
 
 
 class VerificationCheck(BaseModel):
@@ -119,6 +169,14 @@ class AccessDiscovery(BaseModel):
     def has_attempted_access_path(self) -> bool:
         return any(getattr(self, field) for field in _ACCESS_DISCOVERY_FIELDS)
 
+    def has_viable_access_path(self) -> bool:
+        """Return true when discovery found or planned a usable access route."""
+        for field in _ACCESS_DISCOVERY_FIELDS:
+            status = _normalize(getattr(self, field))
+            if status and not _contains_any(status, _NON_VIABLE_ACCESS_STATUSES):
+                return True
+        return False
+
 
 class SourceSystemRequest(BaseModel):
     """Declares that the user requested data/action from an external source system."""
@@ -152,6 +210,8 @@ class OutcomeContract(BaseModel):
     id: str
     created_at: str
     raw_request: str
+    contract_type: ContractType
+    target_completion_status: CompletionStatus
     outcome: str  # Plain language description of desired outcome
     verification: Verification
     constraints: list[Constraint] = []
@@ -162,6 +222,18 @@ class OutcomeContract(BaseModel):
     user_technical_work_acknowledged: bool = False  # Explicit acknowledgment to bypass
     driver: Optional[str] = None  # Which driver will be used
     status: str = "draft"  # draft, approved, executing, verified, complete
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_ad_hoc_contract_exemptions(cls, data: Any):
+        """Reject legacy flags that bypass reviewed contract-type semantics."""
+        if isinstance(data, dict) and "capability_build" in data:
+            raise ValueError(
+                "capability_build is an unreviewed gate exemption. Use "
+                "contract_type: build_capability with an explicit "
+                "target_completion_status."
+            )
+        return data
 
     @model_validator(mode="after")
     def validate_has_verification(self):
@@ -181,6 +253,95 @@ class OutcomeContract(BaseModel):
                 "Contract must include raw_request with the user's exact words. "
                 "Review must compare delivery against the original request, not only "
                 "against the rewritten contract."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_source_system_declaration(self):
+        """The structured declaration may not contradict the raw request."""
+        if (
+            _request_implies_source_system_access(self.raw_request)
+            and not self.source_system_request.requested
+        ):
+            raise ValueError(
+                "raw_request implies source-system access, so "
+                "source_system_request.requested must be true. Agents may not "
+                "disable source-access gates by setting this field to false."
+            )
+        if self.source_system_request.requested and not self.source_system_request.system:
+            raise ValueError(
+                "source_system_request.system is required when requested is true."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_contract_lifecycle(self):
+        """Contract type determines the only completion states it may target."""
+        allowed_statuses = {
+            ContractType.BUILD_CAPABILITY: {
+                CompletionStatus.CAPABILITY_BUILT,
+                CompletionStatus.CAPABILITY_READY_NOT_CONNECTED,
+            },
+            ContractType.CONNECT_CAPABILITY: {
+                CompletionStatus.CAPABILITY_CONNECTED,
+            },
+            ContractType.EXECUTE_WORKFLOW: {
+                CompletionStatus.OUTCOME_DELIVERED,
+            },
+            ContractType.FRAMEWORK_CHANGE: {
+                CompletionStatus.CAPABILITY_BUILT,
+            },
+        }
+        if self.target_completion_status not in allowed_statuses[self.contract_type]:
+            allowed = ", ".join(
+                sorted(status.value for status in allowed_statuses[self.contract_type])
+            )
+            raise ValueError(
+                f"contract_type {self.contract_type.value} may only target: {allowed}."
+            )
+
+        if (
+            self.contract_type == ContractType.FRAMEWORK_CHANGE
+            and not _request_implies_framework_change(self.raw_request)
+        ):
+            raise ValueError(
+                "framework_change is reserved for raw requests that explicitly "
+                "ask to change PocketOps framework, architecture, gates, schema, "
+                "or protocol."
+            )
+
+        if (
+            self.contract_type == ContractType.BUILD_CAPABILITY
+            and self.source_system_request.requested
+        ):
+            if not self.access_discovery:
+                raise ValueError(
+                    "A source-system build_capability contract requires "
+                    "access_discovery."
+                )
+            if not self.access_discovery.has_viable_access_path():
+                raise ValueError(
+                    "A source-system build_capability contract requires a viable "
+                    "API, SDK/CLI, delegated-provider, browser, or credential flow."
+                )
+
+        if (
+            self.contract_type == ContractType.CONNECT_CAPABILITY
+            and not self.source_system_request.requested
+        ):
+            raise ValueError(
+                "connect_capability requires source_system_request.requested: true "
+                "and the external system being connected."
+            )
+
+        if (
+            self.contract_type
+            in (ContractType.CONNECT_CAPABILITY, ContractType.EXECUTE_WORKFLOW)
+            and not self.source_system_request.requested
+            and _request_implies_source_system_access(self.raw_request)
+        ):
+            raise ValueError(
+                f"{self.contract_type.value} must preserve requested source-system access."
             )
         return self
 
@@ -265,6 +426,8 @@ class OutcomeContract(BaseModel):
     def create(
         cls,
         raw_request: str,
+        contract_type: ContractType | str,
+        target_completion_status: CompletionStatus | str,
         outcome: str,
         checks: list[dict],
         constraints: list[dict] | None = None,
@@ -288,6 +451,8 @@ class OutcomeContract(BaseModel):
             id=str(uuid.uuid4())[:8],
             created_at=datetime.now().isoformat(),
             raw_request=raw_request,
+            contract_type=contract_type,
+            target_completion_status=target_completion_status,
             outcome=outcome,
             verification=Verification(checks=verification_checks),
             constraints=constraint_list,

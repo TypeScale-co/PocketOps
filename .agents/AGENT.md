@@ -48,6 +48,9 @@ What `complete_run()` validates:
 - Verification evidence is non-empty (not fake)
 - All review checks pass (outcome-match, naming-honesty, etc.)
 - The contract preserved `raw_request` and did not downgrade source-system access to fallback input
+- Contract type, terminal status, connection state, and user-facing claim agree
+- Ordinary tasks did not modify protected framework enforcement files
+- Capability builds include a real source access path and auth/connect command
 
 ### You Cannot Declare "Done" Without Proof
 
@@ -75,7 +78,7 @@ If you skip `complete_run()`:
 ## Forbidden Actions
 
 1. **Never declare completion without `complete_run()`**
-2. **Never bypass gates with `force=True` unless user explicitly authorizes**
+2. **Never bypass gates with `force=True`; force completion is disabled**
 3. **Never create adapters that don't actually connect to the named service**
    - A service-named adapter MUST connect to that service
    - Reading local export files is NOT a third-party service adapter
@@ -87,6 +90,18 @@ If you skip `complete_run()`:
    - "Insights from my bank account" means pursue bank/API/SDK/provider/browser access
    - "Summarize this export file" means file input is acceptable
    - Any fallback requires documented access discovery and explicit user acceptance
+6. **Never weaken the gates that judge the current task**
+   - Do not edit completion, gate, schema, review-skill, or agent-rule files
+   - Do not prewrite an approved review; `complete_run()` regenerates it
+   - Do not use `force=True`; gate overrides are disabled
+7. **Never use an ad hoc capability-build exemption**
+   - Use `contract_type: build_capability`
+   - Use `capability_ready_not_connected` when credentials are missing
+   - Provide a real adapter/driver path and `setup-auth`, `authorize`, or `connect`
+8. **Never overstate completion**
+   - `capability_built` is not `capability_connected`
+   - `capability_ready_not_connected` is not `outcome_delivered`
+   - `execute_workflow` needs live source-system verification
 
 ## Self-Check Before "Done"
 
@@ -96,5 +111,8 @@ Ask yourself:
 3. Does the archived run have `review: status: approved`?
 4. Did the verification use real systems, not mock data?
 5. Does the contract include `raw_request`, and does it preserve that request?
+6. Does the run's `completion_status` match its reviewed contract type?
+7. Does `user_facing_status` exactly match `completion_status`?
+8. Did this ordinary task leave protected enforcement files unchanged?
 
 If any answer is "no" or "I don't know", you are NOT done.

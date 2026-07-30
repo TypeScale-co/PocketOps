@@ -62,6 +62,20 @@ verification:
 | `not_verified` | Cannot confirm | Diagnose, retry |
 | `blocked` | Cannot proceed | Wait or escalate |
 
+Verification status describes evidence quality. Completion status describes
+what lifecycle outcome was actually reached:
+
+| Completion status | Required evidence |
+|-------------------|-------------------|
+| `capability_built` | Reusable component build and tests; no external connection required |
+| `capability_ready_not_connected` | Real source path and auth/connect command; missing credentials recorded |
+| `capability_connected` | Valid credentials and live external read |
+| `outcome_delivered` | Live execution and verification of the requested outcome |
+
+Build evidence cannot support `capability_connected` or `outcome_delivered`.
+The run's `user_facing_status` must match its `completion_status` so the final
+response cannot imply a stronger result than review approved.
+
 ---
 
 ## Evidence Collection

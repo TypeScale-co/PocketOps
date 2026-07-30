@@ -25,6 +25,24 @@ The agent:
 -   When an adapter returns `invalid_auth` or `authentication_failed`
 -   When user asks to connect a new service
 
+Missing credentials are a lifecycle state, not a reason to abandon the normal
+flow. Unless the reviewed contract is `build_capability`, route missing
+credentials through this skill and continue to connection.
+
+For `build_capability`, the driver must still expose `setup-auth`, `authorize`,
+or `connect`. Record:
+
+```yaml
+completion_status: capability_ready_not_connected
+user_facing_status: capability_ready_not_connected
+connection:
+  status: not_connected
+  credential_status: missing
+```
+
+After credentials are collected and validated, use a `connect_capability`
+contract and report `capability_connected`.
+
 ## Detection
 
 Check for credential before using adapter:

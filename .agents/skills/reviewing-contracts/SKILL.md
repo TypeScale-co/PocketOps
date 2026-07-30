@@ -19,6 +19,8 @@ This skill acts as an independent reviewer to catch:
 3. Hidden user work (user has to do technical work themselves)
 4. Synthetic verification (tests against fake data, not real systems)
 5. Outcome downgrades (contract narrowed the raw request to an easier fallback)
+6. Contract-type laundering (build/connect/execute state reported as a different outcome)
+7. Gate tampering (task changed the framework that reviews it)
 
 ## Review Checklist
 
@@ -84,6 +86,31 @@ fallback after access discovery.
 | "Verified in test environment" | WARN |
 | No verification evidence | FAIL |
 
+### 5. Contract Lifecycle
+
+Review contract type and terminal status together:
+
+| Contract type | Required proof |
+|---------------|----------------|
+| `build_capability` | Real access path, adapter/driver, auth/connect command, build evidence |
+| `connect_capability` | Valid credentials, connected state, live external read |
+| `execute_workflow` | Live source read and evidence the requested outcome was delivered |
+| `framework_change` | Raw request explicitly asks for framework/protocol change |
+
+A credential-dependent build with missing credentials may pass only as
+`capability_ready_not_connected`. It must not pass as `outcome_delivered`.
+
+`user_facing_status` must equal `completion_status`; otherwise reject the
+planned completion claim before the agent responds.
+
+### 6. Framework Integrity
+
+For every contract except `framework_change`, reject modifications to
+`AGENTS.md`, anything under `.agents/` or `pocketops/`, and `scripts/verify`.
+
+Reject prewritten review approvals and ad hoc exemption fields. The runtime
+must regenerate review during `complete_run()`.
+
 ## Review Output
 
 ```yaml
@@ -110,6 +137,18 @@ review:
       notes: <explanation>
 
     - name: verification-authenticity
+      passed: true | false
+      notes: <explanation>
+
+    - name: capability-lifecycle
+      passed: true | false
+      notes: <explanation>
+
+    - name: framework-integrity
+      passed: true | false
+      notes: <explanation>
+
+    - name: completion-claim
       passed: true | false
       notes: <explanation>
 
@@ -196,8 +235,9 @@ review:
 4. Examine all created components (drivers, adapters, transports)
 5. Check verification evidence
 6. Apply each check in the checklist
-7. Write review output to run record
-8. Return APPROVED or REJECTED
+7. Compare Git changes with the run's framework baseline revision
+8. Regenerate and write review output to the run record
+9. Return APPROVED or REJECTED
 
 ## On Rejection
 

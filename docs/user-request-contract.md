@@ -16,6 +16,8 @@ Parsing user requests into structured outcome contracts.
 id: <timestamp>-<slug>
 created_at: <when received>
 raw_request: "<user's exact words>"
+contract_type: build_capability | connect_capability | execute_workflow | framework_change
+target_completion_status: capability_built | capability_ready_not_connected | capability_connected | outcome_delivered
 outcome: "<what should be different after>"
 
 verification:
@@ -62,6 +64,20 @@ unknowns:
 assumptions: []
 ```
 
+## Contract Types
+
+Contract types are reviewed lifecycle modes, not optional labels:
+
+| Type | Purpose | Allowed target |
+|------|---------|----------------|
+| `build_capability` | Construct reusable automation | `capability_built`, `capability_ready_not_connected` |
+| `connect_capability` | Authorize and verify source access | `capability_connected` |
+| `execute_workflow` | Deliver the requested real-world outcome | `outcome_delivered` |
+| `framework_change` | Change PocketOps gates, schemas, review, or protocol | `capability_built` |
+
+An ad hoc `capability_build` flag is invalid. `framework_change` is valid only
+when the raw request explicitly asks for framework or protocol changes.
+
 ---
 
 ## Outcome Preservation
@@ -95,6 +111,14 @@ access_discovery:
 
 Without that, the contract is an outcome downgrade and should be rejected before
 BUILD.
+
+`source_system_request.requested` must agree with `raw_request`. An account or
+source-system request cannot set it to `false` to avoid source-access gates.
+
+For a credential-dependent capability build, access discovery must identify a
+viable API, SDK/CLI, delegated provider, browser, or credential route. The
+driver must expose a setup/connect command, and the target remains
+`capability_ready_not_connected` until live access is authorized.
 
 ---
 
