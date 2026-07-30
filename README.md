@@ -1,3 +1,5 @@
+![PocketOps agent framework](PocketOpsLogo.png)
+
 # PocketOps
 
 **A capability-oriented framework for agent-built business automation.**
