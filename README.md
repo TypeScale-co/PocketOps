@@ -20,7 +20,7 @@ The agent:
 
 You'll never be asked technical questions about APIs, code, or configuration. If something fails, the agent fixes it automatically. You only get involved for decisions that matter to you.
 
-Every outcome also teaches PocketOps a reusable capability: fetch email, read spreadsheets, search documents, summarize support tickets, post Slack updates, query databases, draft follow-ups, create reports. Start with small useful outcomes, then ask for larger outcomes that combine what already works across systems.
+Every outcome also teaches PocketOps a reusable capability: fetch email, read spreadsheets, search documents, summarize tickets, post Slack updates, query databases, compare records, draft messages, create reports. Start with small useful outcomes, then ask for larger outcomes that combine what already works across teams and systems.
 
 ---
 
@@ -167,63 +167,71 @@ Both share: always-on `AGENTS.md`, progressive skill disclosure, reusable verifi
 
 PocketOps works best when you think like a builder, even if you are not technical. Ask for small useful outcomes first; as those work for you, ask for larger outcomes that combine them. The agent turns each request into reusable capabilities behind the scenes.
 
-### Start With Email Triage
+### Candidate Pipeline
 
-> Show me recent customer emails grouped by account and sorted by urgency.
+Small outcomes:
 
----
+> Show me new applicants for the operations manager role, grouped by source and hiring stage.
 
-### Summarize Support Themes
+> Summarize interview notes for each finalist and flag unresolved concerns.
 
-> Summarize this week's Zendesk tickets by customer, product area, urgency, and repeated complaint.
+> Compare the offer spreadsheet against the HRIS record and show any mismatched compensation, start date, or manager fields.
 
----
+> Draft ATS stage updates and interviewer reminders for candidates who are waiting on a decision.
 
-### Read Spreadsheet Updates
+Composed outcome:
 
-> Read the latest finance spreadsheet and show me accounts where spend changed by more than 20%.
-
----
-
-### Search Team Knowledge
-
-> Search our Google Drive docs and Slack history for Acme Corp, then summarize open questions, promises, and recent decisions.
+> Prepare a hiring handoff for the operations manager role using applicants, interview notes, offer details, onboarding tasks, and manager reminders. After I approve it, update candidate stages in the ATS and send the reminders.
 
 ---
 
-### Post a Status Update
+### Campaign Launch
 
-> Turn this summary into a short Slack update for the customer-success channel and show me a preview.
+Small outcomes:
 
----
+> Show me campaign performance from the ad dashboard, website analytics, and email platform, grouped by audience and channel.
 
-### Combine Into a Customer Briefing
+> Summarize launch feedback from Slack, support tickets, survey responses, and sales call notes.
 
-> Prepare a briefing for my Acme Corp meeting using recent email, support tickets, Slack history, shared docs, CRM notes, and billing changes.
+> Check inventory, fulfillment notes, and finance constraints for anything that could block the launch.
 
----
+> Draft updates to the campaign checklist and flag any ads, emails, or landing pages that should be paused before launch.
 
-### Combine Into an Account Risk Review
+Composed outcome:
 
-> Find accounts with rising support volume, falling spend, unresolved promises, or no recent owner activity, then rank the risks and recommend next steps.
-
----
-
-### Combine Into a Weekly Operating Report
-
-> Create a weekly operating report from Stripe, Salesforce, Zendesk, Slack, and our database, then email the draft to me for review.
+> Create a launch readiness brief that combines campaign performance, customer feedback, operational blockers, and budget constraints. After I approve the changes, update the launch checklist and pause any blocked campaign steps.
 
 ---
 
-### Review Data Quality Across Systems
+### Cash And Collections
 
-> Compare customer names and IDs across Salesforce, Stripe, Zendesk, and our database, then show duplicates and mismatches.
+Small outcomes:
+
+> Read the accounting export and budget spreadsheet, then show vendors or categories that changed by more than 20%.
+
+> Find unpaid invoices, match them to recent email threads, and draft polite follow-ups for each customer.
+
+> Compare invoice records across the accounting system, CRM, and database, then show mismatched customer names, amounts, or due dates.
+
+Composed outcome:
+
+> Create a cash review using budget changes, unpaid invoices, customer emails, and record mismatches. Execute the follow-ups and cleanup actions after I approve them.
 
 ---
 
-### Combine Into Approved Cleanup
+### Operating Review
 
-> Show me a cleanup preview across the affected systems, then update only the records I approve.
+Small outcomes:
+
+> Summarize open support tickets, warehouse notes, and Slack escalations by product line and urgency.
+
+> Compare customer, vendor, and order records across our spreadsheet, database, and shipping system, then show mismatches.
+
+> Find accounts with rising escalations, delayed orders, or stale owner activity, then draft CRM updates that mark them at risk and notify the account manager.
+
+Composed outcome:
+
+> Create a weekly operating review across marketing, recruiting, finance, and operations. After I approve it, update at-risk records, notify owners, and send the leadership summary.
 
 ---
 

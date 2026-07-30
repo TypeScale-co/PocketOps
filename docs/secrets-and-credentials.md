@@ -1,6 +1,6 @@
 # Secrets and Credentials
 
-Safe credential handling in PocketOps.
+Local credential handling in PocketOps.
 
 ---
 
@@ -17,13 +17,13 @@ Safe credential handling in PocketOps.
 
 ## Collection
 
-Use the credential collection script to gather credentials from users:
+Use browser-assisted local credential capture to gather credentials from users:
 
 ```bash
 ./scripts/collect-credential SLACK_BOT_TOKEN "Slack Bot Token"
 ```
 
-The script opens a browser window with a form—token never appears in conversation history.
+The script opens a local browser form so the token never appears in conversation history.
 
 ---
 
