@@ -19,6 +19,48 @@ from typing import Optional, List
 
 from pocketops.gates import Phase, GateRegistry, GateResult
 
+# Import gate implementations so decorators register checks before transitions.
+import pocketops.gates.checks  # noqa: F401
+
+
+_SOURCE_SYSTEM_REQUEST_TERMS = (
+    "from my",
+    "my account",
+    "my banking",
+    "my bank",
+    "my email",
+    "my calendar",
+    "my crm",
+    "my documents",
+    "my files",
+    "pull",
+    "fetch",
+    "retrieve",
+    "connect",
+    "sync",
+    "import from",
+    "read from",
+)
+
+_FALLBACK_TERMS = (
+    "manual export",
+    "manually export",
+    "manual upload",
+    "copy paste",
+    "copy-paste",
+    "export file",
+    "export files",
+    "csv export",
+    "local csv",
+    "local file",
+    "input file",
+    "uploaded file",
+    "mock data",
+    "synthetic data",
+    "fixture",
+    "sandbox only",
+)
+
 
 class RunCreationError(Exception):
     """Raised when run creation fails."""
@@ -112,6 +154,17 @@ def create_run(
             details={"contract_id": contract_id, "plans_dir": str(plans_dir)},
         )
 
+    # Validate contract content before any execution can start.
+    try:
+        from pocketops.validation import load_contract
+
+        load_contract(contract_file)
+    except Exception as e:
+        raise RunCreationError(
+            f"Contract '{contract_id}' is invalid. Fix the outcome contract before execution.",
+            details={"contract_id": contract_id, "contract_file": str(contract_file), "error": str(e)},
+        ) from e
+
     # Validate driver exists
     driver_dir = project_root / "drivers" / driver
     driver_manifest = driver_dir / "manifest.yaml"
@@ -178,6 +231,81 @@ def _load_run_file(runs_dir: Path, run_id: str) -> tuple[Path, dict]:
     return run_file, data
 
 
+def _normalize(value: str | None) -> str:
+    return (value or "").lower()
+
+
+def _contains_any(value: str, terms: tuple[str, ...]) -> bool:
+    return any(term in value for term in terms)
+
+
+def _request_implies_source_system_access(raw_request: str) -> bool:
+    return _contains_any(_normalize(raw_request), _SOURCE_SYSTEM_REQUEST_TERMS)
+
+
+def _request_explicitly_allows_fallback(raw_request: str) -> bool:
+    return _contains_any(_normalize(raw_request), _FALLBACK_TERMS)
+
+
+def _text_implies_fallback(*values: str | None) -> bool:
+    return _contains_any(_normalize(" ".join(v or "" for v in values)), _FALLBACK_TERMS)
+
+
+def _source_system_requested(contract: dict) -> bool:
+    source_system_request = contract.get("source_system_request", {})
+    if isinstance(source_system_request, dict) and source_system_request.get("requested"):
+        return True
+    return _request_implies_source_system_access(contract.get("raw_request", ""))
+
+
+def _fallback_active(contract: dict) -> bool:
+    fallback_mode = contract.get("fallback_mode", {})
+    if isinstance(fallback_mode, dict) and fallback_mode.get("type"):
+        return True
+    return _text_implies_fallback(_contract_text(contract))
+
+
+def _fallback_accepted(contract: dict) -> bool:
+    fallback_mode = contract.get("fallback_mode", {})
+    return bool(
+        isinstance(fallback_mode, dict)
+        and fallback_mode.get("accepted_after_access_discovery")
+    )
+
+
+def _contract_text(contract: dict) -> str:
+    verification = contract.get("verification", {})
+    checks = verification.get("checks", []) if isinstance(verification, dict) else []
+    constraints = contract.get("constraints", [])
+
+    parts = [str(contract.get("outcome", ""))]
+    for check in checks:
+        if isinstance(check, dict):
+            parts.append(str(check.get("description", "")))
+            parts.append(str(check.get("expected", "")))
+    for constraint in constraints:
+        if isinstance(constraint, dict):
+            parts.append(str(constraint.get("description", "")))
+    return " ".join(parts)
+
+
+def _manifest_text(path: Path) -> str:
+    if not path.exists():
+        return ""
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f) or {}
+    except yaml.YAMLError:
+        return path.name
+
+    parts = [str(data.get("name", "")), str(data.get("description", ""))]
+    for item in data.get("inputs", []) or []:
+        if isinstance(item, dict):
+            parts.append(str(item.get("name", "")))
+            parts.append(str(item.get("description", "")))
+    return " ".join(parts)
+
+
 def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
     """
     Run the reviewing-contracts checks programmatically.
@@ -228,6 +356,50 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
             "notes": "No contract_id in run data - run must reference a contract",
         })
         review["reasons"].append("No contract reference - PLAN phase was skipped")
+
+    # Check 0b: Raw request preservation - was the contract narrowed?
+    if contract_exists:
+        raw_request = contract.get("raw_request", "")
+        contract_uses_fallback = _fallback_active(contract)
+
+        if not raw_request:
+            review["checks"].append({
+                "name": "raw-request-preserved",
+                "passed": False,
+                "notes": "Contract does not include raw_request; cannot compare delivery to original user intent",
+            })
+            review["reasons"].append("Missing raw_request prevents outcome preservation review")
+        elif (
+            _source_system_requested(contract)
+            and contract_uses_fallback
+            and not _request_explicitly_allows_fallback(raw_request)
+            and not _fallback_accepted(contract)
+        ):
+            review["checks"].append({
+                "name": "raw-request-preserved",
+                "passed": False,
+                "notes": (
+                    "Raw request asks for source-system data, but contract narrows "
+                    "delivery to fallback input such as manual files, copy/paste, "
+                    "mock data, or sandbox-only data"
+                ),
+            })
+            review["reasons"].append(
+                "Outcome narrowed from source-system retrieval to fallback mode"
+            )
+        else:
+            review["checks"].append({
+                "name": "raw-request-preserved",
+                "passed": True,
+                "notes": "Contract preserves raw request scope",
+            })
+    else:
+        review["checks"].append({
+            "name": "raw-request-preserved",
+            "passed": False,
+            "notes": "Cannot compare raw request without contract file",
+        })
+        review["reasons"].append("Cannot review raw request preservation without contract")
 
     # Check 1: Outcome match - does delivery match contract?
     if contract_exists:
@@ -301,6 +473,34 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
                         "passed": True,
                         "notes": f"All adapters exist: {', '.join(adapter_names)}",
                     })
+
+                    if contract_exists:
+                        raw_request = contract.get("raw_request", "")
+                        manifest_text = _manifest_text(driver_manifest)
+                        for adapter_name in adapter_names:
+                            manifest_text += " "
+                            manifest_text += _manifest_text(
+                                project_root / "adapters" / adapter_name / "manifest.yaml"
+                            )
+
+                        if (
+                            _source_system_requested(contract)
+                            and _text_implies_fallback(manifest_text)
+                            and not _request_explicitly_allows_fallback(raw_request)
+                            and not _fallback_accepted(contract)
+                        ):
+                            # Override the earlier positive check with an explicit failure.
+                            review["checks"][-1] = {
+                                "name": "naming-honesty",
+                                "passed": False,
+                                "notes": (
+                                    "Components for a source-system request expose "
+                                    "fallback inputs instead of retrieving source data"
+                                ),
+                            }
+                            review["reasons"].append(
+                                "Component names/boundaries hide fallback input mode"
+                            )
             else:
                 review["checks"].append({
                     "name": "naming-honesty",
@@ -344,10 +544,35 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
     # Check 4: Verification authenticity - was real system used?
     verification = run_data.get("verification", {})
     verification_status = verification.get("status", "not_verified")
+    raw_request = contract.get("raw_request", "") if contract_exists else ""
+    source_system_request = (
+        _source_system_requested(contract)
+        and not _request_explicitly_allows_fallback(raw_request)
+        and not _fallback_accepted(contract)
+    )
+    effects = run_data.get("effects", [])
+    has_external_read = any(
+        isinstance(effect, dict)
+        and effect.get("risk") == "read"
+        and effect.get("scope") in ("external", "production")
+        for effect in effects
+    )
 
     if verification_status == "verified":
         evidence = verification.get("evidence", {})
-        if evidence:
+        if source_system_request and not has_external_read:
+            review["checks"].append({
+                "name": "verification-authenticity",
+                "passed": False,
+                "notes": (
+                    "Raw request requires source-system data, but run effects "
+                    "show no external read from that source"
+                ),
+            })
+            review["reasons"].append(
+                "Verification did not prove source-system retrieval"
+            )
+        elif evidence:
             review["checks"].append({
                 "name": "verification-authenticity",
                 "passed": True,
@@ -434,8 +659,8 @@ def complete_run(
         # Find the first blocking gate
         first_failure = failed_gates[0] if failed_gates else None
         raise CompletionError(
-            gate_name=first_failure.gate_name if first_failure else "unknown",
-            message=first_failure.message if first_failure else "Gate check failed",
+            gate_name=first_failure.gate_name if first_failure is not None else "unknown",
+            message=first_failure.message if first_failure is not None else "Gate check failed",
             details={
                 "gate_results": [
                     {"gate": r.gate_name, "passed": r.passed, "message": r.message}

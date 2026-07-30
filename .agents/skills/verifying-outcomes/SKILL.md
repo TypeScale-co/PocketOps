@@ -70,7 +70,7 @@ verification:
 
 This independent review catches:
 - Outcome mismatch (delivery doesn't match contract)
-- Naming dishonesty (e.g., "wells-fargo" adapter that reads CSVs)
+- Naming dishonesty (e.g., service-named adapter that reads local exports)
 - Hidden user work (user must do technical tasks)
 - Synthetic verification (tested against fake data)
 

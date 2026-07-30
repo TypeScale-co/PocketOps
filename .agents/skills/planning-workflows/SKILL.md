@@ -32,6 +32,7 @@ Never immediately generate a monolithic script.
 7. Classify all side effects
 8. Design verification strategy
 9. Document rollback approach
+10. For source-system/account requests, document access discovery before any fallback
 
 ## Discovery Order
 
@@ -85,6 +86,13 @@ side_effects:
     scope: external
     approval: preview-required
 
+access_discovery:
+  official_api: checked | available | unavailable | blocked
+  sdk_or_cli: checked | available | unavailable | blocked
+  delegated_provider: checked | available | unavailable | blocked
+  browser_flow: checked | feasible | blocked
+  credential_flow: planned | blocked
+
 verification:
   strategy: retrieve-and-compare
   checks: [message_exists, content_matches]
@@ -104,6 +112,22 @@ When creating components, build inside-out:
 4. Driver
 
 Each layer can be tested before the next depends on it.
+
+## Manual Fallback Rule
+
+If the user asks for data from a source system or account, do not choose manual
+fallback input as the primary plan. First evaluate:
+
+- Official API
+- Vendor SDK or CLI
+- Delegated access provider
+- Browser-assisted authorization or retrieval
+- Credential collection/setup flow
+
+Fallback is valid only when the user explicitly requested that input mode or
+explicitly accepts a reduced scope after access discovery. Mark it in the
+contract with `source_system_request`, `fallback_mode`, and the access discovery
+statuses.
 
 ## Handoff
 

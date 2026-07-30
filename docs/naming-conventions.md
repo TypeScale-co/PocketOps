@@ -75,7 +75,7 @@ Name after the service/domain:
 - `github-issues` - GitHub Issues
 - `postgres` - PostgreSQL database
 
-**Important**: Adapter names must reflect what they actually connect to. An adapter named `wells-fargo` must connect to Wells Fargo systems, not read local files.
+**Important**: Adapter names must reflect what they actually connect to. A service-named adapter must connect to that service, not read local exports for that service.
 
 ### Drivers
 

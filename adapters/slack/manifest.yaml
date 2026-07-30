@@ -119,7 +119,7 @@ provides:
 
 trust:
   status: integration-verified
-  last_verified: 2026-07-28
+  last_verified: "2026-07-28"
   known_limitations:
     - "Cannot post to channels bot is not a member of"
     - "Rate limited to ~1 message per second per channel"

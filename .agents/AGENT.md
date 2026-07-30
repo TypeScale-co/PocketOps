@@ -47,6 +47,7 @@ What `complete_run()` validates:
 - Contract/plan file exists (was PLAN phase completed?)
 - Verification evidence is non-empty (not fake)
 - All review checks pass (outcome-match, naming-honesty, etc.)
+- The contract preserved `raw_request` and did not downgrade source-system access to fallback input
 
 ### You Cannot Declare "Done" Without Proof
 
@@ -76,12 +77,16 @@ If you skip `complete_run()`:
 1. **Never declare completion without `complete_run()`**
 2. **Never bypass gates with `force=True` unless user explicitly authorizes**
 3. **Never create adapters that don't actually connect to the named service**
-   - A `wells-fargo` adapter MUST connect to Wells Fargo
-   - Reading local CSV files is NOT a Wells Fargo adapter
+   - A service-named adapter MUST connect to that service
+   - Reading local export files is NOT a third-party service adapter
 4. **Never require the user to do technical work**
    - Exporting CSVs manually = FAIL
    - Writing queries = FAIL
    - Editing config files = FAIL
+5. **Never rewrite source-system access as fallback input**
+   - "Insights from my bank account" means pursue bank/API/SDK/provider/browser access
+   - "Summarize this export file" means file input is acceptable
+   - Any fallback requires documented access discovery and explicit user acceptance
 
 ## Self-Check Before "Done"
 
@@ -90,5 +95,6 @@ Ask yourself:
 2. Is `runs/current/` empty?
 3. Does the archived run have `review: status: approved`?
 4. Did the verification use real systems, not mock data?
+5. Does the contract include `raw_request`, and does it preserve that request?
 
 If any answer is "no" or "I don't know", you are NOT done.

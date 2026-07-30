@@ -6,8 +6,78 @@ They are the foundation of the VERIFY → COMPLETE gate.
 """
 
 from typing import Optional
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from datetime import datetime
+
+
+_SOURCE_SYSTEM_REQUEST_TERMS = (
+    "from my",
+    "my account",
+    "my banking",
+    "my bank",
+    "my email",
+    "my calendar",
+    "my crm",
+    "my documents",
+    "my files",
+    "pull",
+    "fetch",
+    "retrieve",
+    "connect",
+    "sync",
+    "import from",
+    "read from",
+)
+
+_FALLBACK_TERMS = (
+    "manual export",
+    "manually export",
+    "manual upload",
+    "copy paste",
+    "copy-paste",
+    "export file",
+    "export files",
+    "csv export",
+    "local csv",
+    "local file",
+    "input file",
+    "uploaded file",
+    "mock data",
+    "synthetic data",
+    "fixture",
+    "sandbox only",
+)
+
+_ACCESS_DISCOVERY_FIELDS = (
+    "official_api",
+    "sdk_or_cli",
+    "delegated_provider",
+    "browser_flow",
+    "credential_flow",
+)
+
+
+def _normalize(value: str | None) -> str:
+    return (value or "").lower()
+
+
+def _contains_any(value: str, terms: tuple[str, ...]) -> bool:
+    return any(term in value for term in terms)
+
+
+def _request_implies_source_system_access(raw_request: str) -> bool:
+    normalized = _normalize(raw_request)
+    return _contains_any(normalized, _SOURCE_SYSTEM_REQUEST_TERMS)
+
+
+def _request_explicitly_allows_fallback(raw_request: str) -> bool:
+    normalized = _normalize(raw_request)
+    return _contains_any(normalized, _FALLBACK_TERMS)
+
+
+def _contract_uses_fallback(text: str) -> bool:
+    normalized = _normalize(text)
+    return _contains_any(normalized, _FALLBACK_TERMS)
 
 
 class VerificationCheck(BaseModel):
@@ -31,6 +101,44 @@ class Constraint(BaseModel):
     description: str
 
 
+class AccessDiscovery(BaseModel):
+    """
+    Records source-system access paths checked before choosing a fallback.
+
+    Values are free-form short statuses such as "available", "unavailable",
+    "blocked", or "needs-credentials" because every system has different
+    discovery surfaces.
+    """
+    official_api: Optional[str] = None
+    sdk_or_cli: Optional[str] = None
+    delegated_provider: Optional[str] = None
+    browser_flow: Optional[str] = None
+    credential_flow: Optional[str] = None
+    notes: Optional[str] = None
+
+    def has_attempted_access_path(self) -> bool:
+        return any(getattr(self, field) for field in _ACCESS_DISCOVERY_FIELDS)
+
+
+class SourceSystemRequest(BaseModel):
+    """Declares that the user requested data/action from an external source system."""
+    requested: bool = False
+    system: Optional[str] = None
+    expected_agent_access: bool = True
+
+
+class FallbackMode(BaseModel):
+    """Declares that delivery uses a reduced-scope fallback instead of source access."""
+    type: Optional[str] = None  # manual_file, user_copy_paste, mock_data, sandbox_only, other
+    explicitly_requested_by_user: bool = False
+    accepted_after_access_discovery: bool = False
+    reason: Optional[str] = None
+
+    @property
+    def active(self) -> bool:
+        return bool(self.type)
+
+
 class OutcomeContract(BaseModel):
     """
     Outcome contract defining success criteria.
@@ -43,9 +151,13 @@ class OutcomeContract(BaseModel):
     """
     id: str
     created_at: str
+    raw_request: str
     outcome: str  # Plain language description of desired outcome
     verification: Verification
     constraints: list[Constraint] = []
+    source_system_request: SourceSystemRequest = Field(default_factory=SourceSystemRequest)
+    access_discovery: Optional[AccessDiscovery] = None
+    fallback_mode: Optional[FallbackMode] = None
     user_technical_work: bool = False  # True if user must do technical work (FAIL)
     user_technical_work_acknowledged: bool = False  # Explicit acknowledgment to bypass
     driver: Optional[str] = None  # Which driver will be used
@@ -58,6 +170,17 @@ class OutcomeContract(BaseModel):
             raise ValueError(
                 "Contract must specify at least one verification check. "
                 "Without verification, we can't confirm the outcome was achieved."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_raw_request_present(self):
+        """Contracts must preserve the user's original words for review."""
+        if not self.raw_request or not self.raw_request.strip():
+            raise ValueError(
+                "Contract must include raw_request with the user's exact words. "
+                "Review must compare delivery against the original request, not only "
+                "against the rewritten contract."
             )
         return self
 
@@ -85,12 +208,69 @@ class OutcomeContract(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def validate_no_unacknowledged_outcome_downgrade(self):
+        """
+        Reject contracts that turn source-system retrieval into a fallback.
+
+        If a user asks for data from a system/account, the agent must pursue
+        access paths first. Manual files, copy/paste, mock data, and sandbox-only
+        modes are allowed only when the user explicitly asked for that mode or
+        explicitly accepts it after access discovery.
+        """
+        requested_source_access = (
+            self.source_system_request.requested
+            or _request_implies_source_system_access(self.raw_request)
+        )
+        request_allows_fallback = _request_explicitly_allows_fallback(self.raw_request)
+
+        contract_text = " ".join(
+            [
+                self.outcome,
+                " ".join(check.description for check in self.verification.checks),
+                " ".join(check.expected or "" for check in self.verification.checks),
+                " ".join(constraint.description for constraint in self.constraints),
+            ]
+        )
+        active_fallback = bool(self.fallback_mode and self.fallback_mode.active)
+        detected_fallback = active_fallback or _contract_uses_fallback(contract_text)
+
+        if requested_source_access and detected_fallback and not request_allows_fallback:
+            accepted_fallback = bool(
+                self.fallback_mode
+                and self.fallback_mode.accepted_after_access_discovery
+            )
+
+            if not accepted_fallback:
+                raise ValueError(
+                    "Contract appears to downgrade a source-system request into a "
+                    "fallback mode such as manual file input, copy/paste, mock data, "
+                    "or sandbox-only data. This violates outcome preservation. Pursue "
+                    "API, SDK/CLI, delegated provider, browser-assisted, or credential "
+                    "flow access first. If fallback is truly intended, set "
+                    "fallback_mode.type and fallback_mode.accepted_after_access_discovery "
+                    "only after explicit user acceptance."
+                )
+
+            if not self.access_discovery or not self.access_discovery.has_attempted_access_path():
+                raise ValueError(
+                    "Fallback for a source-system request requires "
+                    "access_discovery documenting attempted API, SDK/CLI, delegated "
+                    "provider, browser, or credential-flow paths."
+                )
+
+        return self
+
     @classmethod
     def create(
         cls,
+        raw_request: str,
         outcome: str,
         checks: list[dict],
         constraints: list[dict] | None = None,
+        source_system_request: dict | None = None,
+        access_discovery: dict | None = None,
+        fallback_mode: dict | None = None,
         driver: str | None = None,
     ) -> "OutcomeContract":
         """Factory method to create a new contract."""
@@ -107,8 +287,12 @@ class OutcomeContract(BaseModel):
         return cls(
             id=str(uuid.uuid4())[:8],
             created_at=datetime.now().isoformat(),
+            raw_request=raw_request,
             outcome=outcome,
             verification=Verification(checks=verification_checks),
             constraints=constraint_list,
+            source_system_request=SourceSystemRequest(**source_system_request) if source_system_request else SourceSystemRequest(),
+            access_discovery=AccessDiscovery(**access_discovery) if access_discovery else None,
+            fallback_mode=FallbackMode(**fallback_mode) if fallback_mode else None,
             driver=driver,
         )

@@ -13,6 +13,7 @@
 4. ITERATE UP TO 5 TIMES — then escalate with full context
 5. BUILD REUSABLE COMPONENTS — never write one-off scripts
 6. COMPLETE_RUN() REQUIRED — never declare "done" without calling it
+7. PRESERVE RAW REQUEST — never rewrite source-system retrieval as fallback input
 ```
 
 ### Workflow Lifecycle Requirement (Invariant 6)
@@ -105,6 +106,23 @@ The user should see:
 - How should I parse this response?
 
 **When uncertain if a question is technical: it probably is. Default to discovering or assuming.**
+
+### 4. Preserve the Requested Outcome
+
+**Do not downgrade the outcome to an easier fallback.**
+
+If the user asks PocketOps to draw data from an account or source system, the
+agent must pursue access paths such as official APIs, SDKs/CLIs, delegated
+providers, browser-assisted authorization, or credential flows. Manual files,
+copy/paste, mock data, and sandbox-only data are fallback modes only.
+
+Fallback is allowed only when:
+- the user explicitly requested that input mode, or
+- the agent documents access discovery and the user explicitly accepts the
+  reduced scope.
+
+The outcome contract must include `raw_request` so review compares final
+delivery against the user's original words.
 
 ---
 
