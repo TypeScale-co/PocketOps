@@ -27,7 +27,10 @@ from pocketops.validation import (
     install_import_guard,
 )
 from pocketops.workflow import (
+    create_run,
     complete_run,
+    RunRecord,
+    RunCreationError,
     CompletionError,
     CompletionResult,
 )
@@ -51,8 +54,11 @@ __all__ = [
     # Layer enforcement
     "LayerViolationError",
     "install_import_guard",
-    # Workflow completion (REQUIRED for finishing runs)
-    "complete_run",
+    # Workflow lifecycle (REQUIRED functions)
+    "create_run",       # Call BEFORE execution
+    "complete_run",     # Call AFTER verification
+    "RunRecord",
+    "RunCreationError",
     "CompletionError",
     "CompletionResult",
 ]

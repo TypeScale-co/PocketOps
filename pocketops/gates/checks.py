@@ -258,15 +258,62 @@ def check_dry_run_completed(context: dict) -> GateResult:
     )
 
 
+def _validate_verification_evidence(verification: dict) -> tuple[bool, str]:
+    """
+    Validate that verification evidence is non-empty and meaningful.
+
+    Evidence must contain actual captured data, not just empty dicts.
+
+    Returns:
+        (valid, error_message)
+    """
+    evidence = verification.get("evidence", {})
+
+    # Must have evidence section
+    if not evidence:
+        return False, "No evidence captured. Verification must include actual system data."
+
+    # Evidence must have meaningful content
+    # At minimum: timestamp and at least one of: captured_at, artifacts, system_response, screenshot
+    meaningful_fields = ["captured_at", "timestamp", "artifacts", "system_response",
+                         "screenshot", "api_response", "query_result", "message_found"]
+
+    has_meaningful_content = any(
+        evidence.get(field) for field in meaningful_fields
+    )
+
+    if not has_meaningful_content:
+        return False, (
+            "Evidence exists but contains no meaningful data. "
+            f"Must include at least one of: {', '.join(meaningful_fields)}"
+        )
+
+    # Check that checks passed
+    checks = verification.get("checks", [])
+    if not checks:
+        return False, "No verification checks recorded."
+
+    failed_checks = [c.get("name", "unknown") for c in checks if not c.get("passed", False)]
+    if failed_checks:
+        return False, f"Verification checks failed: {', '.join(failed_checks)}"
+
+    return True, ""
+
+
 @GateRegistry.register(
     name="verification-required",
     from_phase=Phase.VERIFY,
     to_phase=Phase.COMPLETE,
-    description="Verification must pass before marking complete",
+    description="Verification with evidence must pass before marking complete",
 )
 def check_verification_passed(context: dict) -> GateResult:
     """
-    Verify the outcome was verified before allowing COMPLETE phase.
+    Verify the outcome was verified with actual evidence before allowing COMPLETE phase.
+
+    This gate validates:
+    1. Verification status is "verified"
+    2. Evidence dict is non-empty with meaningful content
+    3. All verification checks passed
 
     Context should contain:
         - run_id: ID of the current run
@@ -310,10 +357,21 @@ def check_verification_passed(context: dict) -> GateResult:
     status = verification.get("status", "not_verified")
 
     if status == "verified":
+        # Validate evidence is meaningful
+        evidence_valid, error_msg = _validate_verification_evidence(verification)
+
+        if not evidence_valid:
+            return GateResult(
+                passed=False,
+                gate_name="verification-required",
+                message=f"Verification claimed but invalid: {error_msg}",
+                details={"verification": verification},
+            )
+
         return GateResult(
             passed=True,
             gate_name="verification-required",
-            message="Outcome verified successfully",
+            message="Outcome verified with valid evidence",
             details={"verification": verification},
         )
 
@@ -333,33 +391,6 @@ def check_verification_passed(context: dict) -> GateResult:
                 "Run verification checks before completing.",
         details={"verification": verification},
     )
-
-
-def _is_high_risk_run(run_data: dict) -> bool:
-    """
-    Determine if a run is high-risk and requires mandatory review.
-
-    High-risk operations include:
-    - External writes (scope: external)
-    - Destructive operations (risk: destructive)
-    - Batch operations affecting multiple records
-    """
-    effects = run_data.get("effects", [])
-    for effect in effects:
-        risk = effect.get("risk", "").lower()
-        scope = effect.get("scope", "").lower()
-
-        if risk in ("destructive", "write", "high", "critical"):
-            return True
-        if scope in ("external", "batch", "destructive"):
-            return True
-
-    # Check driver info if available
-    driver_info = run_data.get("driver_info", {})
-    if driver_info.get("risk", "").lower() in ("high", "critical", "destructive"):
-        return True
-
-    return False
 
 
 def _validate_review_checks(review: dict) -> tuple[bool, list[str]]:
@@ -394,8 +425,7 @@ def check_review_approved(context: dict) -> GateResult:
     """
     Verify contract review was approved before allowing COMPLETE phase.
 
-    Review is MANDATORY for high-risk operations (external writes, destructive ops).
-    Review can be skipped for low-risk read-only operations.
+    Review is ALWAYS MANDATORY. There is no skip option.
 
     This gate validates BOTH:
     1. Review status is "approved"
@@ -403,11 +433,9 @@ def check_review_approved(context: dict) -> GateResult:
 
     Context should contain:
         - run_id: ID of the current run
-        - skip_review: Explicit opt-out (only works for low-risk runs)
         - project_root: Optional path to project root
     """
     run_id = context.get("run_id")
-    skip_review = context.get("skip_review", False)
     project_root = Path(context.get("project_root", _find_project_root()))
     runs_dir = project_root / "runs" / "current"
 
@@ -441,48 +469,17 @@ def check_review_approved(context: dict) -> GateResult:
             message="Run file is empty",
         )
 
-    # Check if this is a high-risk run
-    is_high_risk = _is_high_risk_run(run_data)
-
-    # High-risk runs ALWAYS require review
-    if is_high_risk and skip_review:
-        return GateResult(
-            passed=False,
-            gate_name="review-required",
-            message="Cannot skip review for high-risk operations. "
-                    "Run reviewing-contracts skill before completion.",
-            details={"high_risk": True, "effects": run_data.get("effects", [])},
-        )
-
-    # Low-risk runs can opt out
-    if skip_review and not is_high_risk:
-        return GateResult(
-            passed=True,
-            gate_name="review-required",
-            message="Review skipped (low-risk operation)",
-            details={"high_risk": False},
-        )
-
     # Check for review in run file
     review = run_data.get("review", {})
     status = review.get("status", "not_reviewed")
 
     if status == "not_reviewed" or not review:
-        if is_high_risk:
-            return GateResult(
-                passed=False,
-                gate_name="review-required",
-                message="Contract review required for high-risk operation. "
-                        "Run reviewing-contracts skill before completion.",
-                details={"high_risk": True},
-            )
-        else:
-            return GateResult(
-                passed=False,
-                gate_name="review-required",
-                message="Contract review not completed. "
-                        "Run reviewing-contracts skill or set skip_review=True for low-risk ops.",
-            )
+        return GateResult(
+            passed=False,
+            gate_name="review-required",
+            message="Contract review required. "
+                    "Review is automatically run by complete_run().",
+        )
 
     if status == "rejected":
         reasons = review.get("reasons", [])

@@ -18,16 +18,35 @@ During **DRY RUN**, **APPROVAL**, and **EXECUTE** phases.
 ## Execution Flow
 
 ```
-Load Plan → Dry Run → Show Preview → Get Approval → Execute → Verify → complete_run()
+Load Plan → create_run() → Dry Run → Show Preview → Get Approval → Execute → Verify → complete_run()
 ```
 
-**CRITICAL**: Workflows are NOT complete until `complete_run()` is called. This function:
-- Runs the reviewing-contracts checks automatically
-- Enforces all VERIFY → COMPLETE gates
-- Records the completion with gate results
-- Archives the run
+**CRITICAL**: Two functions MUST be called:
 
-You CANNOT declare a workflow "done" without calling `complete_run()`.
+1. **`create_run()`** - BEFORE execution starts
+   - Creates the run record in `runs/current/`
+   - Validates contract exists in `plans/active/`
+   - Validates driver exists
+   - Returns run_id for tracking
+
+2. **`complete_run()`** - AFTER verification
+   - Runs reviewing-contracts checks automatically
+   - Enforces all VERIFY → COMPLETE gates
+   - Archives the run to `runs/archive/`
+
+```python
+from pocketops import create_run, complete_run
+
+# Before execution
+run = create_run(contract_id="my-contract", driver="my-driver")
+
+# ... execute and verify ...
+
+# After verification
+result = complete_run(run_id=run.run_id)
+```
+
+You CANNOT declare a workflow "done" without calling both functions.
 
 ## Step 1: Dry Run
 

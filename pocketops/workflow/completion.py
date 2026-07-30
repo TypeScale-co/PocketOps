@@ -1,8 +1,10 @@
 """
 Workflow completion enforcement.
 
-This module provides the ONLY valid way to complete a PocketOps workflow.
-The complete_run() function enforces ALL gates and blocks completion if any fail.
+This module provides the ONLY valid way to start and complete a PocketOps workflow.
+
+- create_run() MUST be called before execution starts
+- complete_run() MUST be called to finish (enforces all gates)
 
 IMPORTANT: Agents declaring "done" without calling complete_run() have NOT
 actually completed the workflow. The run record will show incomplete status.
@@ -13,9 +15,18 @@ import yaml
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, List
 
 from pocketops.gates import Phase, GateRegistry, GateResult
+
+
+class RunCreationError(Exception):
+    """Raised when run creation fails."""
+
+    def __init__(self, message: str, details: dict = None):
+        self.message = message
+        self.details = details or {}
+        super().__init__(message)
 
 
 class CompletionError(Exception):
@@ -26,6 +37,16 @@ class CompletionError(Exception):
         self.message = message
         self.details = details or {}
         super().__init__(f"Completion blocked by {gate_name}: {message}")
+
+
+@dataclass
+class RunRecord:
+    """A run record returned by create_run()."""
+    run_id: str
+    run_file: str
+    contract_id: str
+    driver: str
+    created_at: str
 
 
 @dataclass
@@ -47,6 +68,96 @@ def _find_project_root() -> Path:
             return current
         current = current.parent
     return cwd
+
+
+def create_run(
+    contract_id: str,
+    driver: str,
+    effects: List[dict] = None,
+    inputs: dict = None,
+    project_root: Optional[str | Path] = None,
+) -> RunRecord:
+    """
+    Create a run record before execution.
+
+    This MUST be called before executing any workflow. It creates the run
+    record that will be validated and archived by complete_run().
+
+    Args:
+        contract_id: ID of the outcome contract (must exist in plans/active/)
+        driver: Name of the driver being executed
+        effects: List of effects (risk, scope, reversibility)
+        inputs: Input parameters for the driver
+        project_root: Path to project root (auto-detected if not provided)
+
+    Returns:
+        RunRecord with run_id and file path
+
+    Raises:
+        RunCreationError: If contract doesn't exist or other validation fails
+    """
+    project_root = Path(project_root) if project_root else _find_project_root()
+    plans_dir = project_root / "plans" / "active"
+    runs_dir = project_root / "runs" / "current"
+
+    # Validate contract exists
+    contract_file = plans_dir / f"{contract_id}.yaml"
+    if not contract_file.exists():
+        contract_file = plans_dir / f"{contract_id}.yml"
+
+    if not contract_file.exists():
+        raise RunCreationError(
+            f"Contract '{contract_id}' not found in plans/active/. "
+            "You must create a contract during PLAN phase before execution.",
+            details={"contract_id": contract_id, "plans_dir": str(plans_dir)},
+        )
+
+    # Validate driver exists
+    driver_dir = project_root / "drivers" / driver
+    driver_manifest = driver_dir / "manifest.yaml"
+    if not driver_manifest.exists():
+        raise RunCreationError(
+            f"Driver '{driver}' not found. "
+            "You must create the driver during BUILD phase before execution.",
+            details={"driver": driver, "expected_path": str(driver_manifest)},
+        )
+
+    # Generate run ID
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_id = f"{timestamp}-{driver}"
+
+    # Create run record
+    run_data = {
+        "run_id": run_id,
+        "contract_id": contract_id,
+        "driver": driver,
+        "status": "created",
+        "created_at": datetime.now().isoformat(),
+        "inputs": inputs or {},
+        "effects": effects or [],
+        "outputs": {},
+        "verification": {
+            "status": "not_verified",
+            "checks": [],
+            "evidence": {},
+        },
+    }
+
+    # Ensure runs directory exists
+    runs_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write run file
+    run_file = runs_dir / f"{run_id}.yaml"
+    with open(run_file, "w") as f:
+        yaml.safe_dump(run_data, f, default_flow_style=False, sort_keys=False)
+
+    return RunRecord(
+        run_id=run_id,
+        run_file=str(run_file),
+        contract_id=contract_id,
+        driver=driver,
+        created_at=run_data["created_at"],
+    )
 
 
 def _load_run_file(runs_dir: Path, run_id: str) -> tuple[Path, dict]:
@@ -81,52 +192,75 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
         "reasons": [],
     }
 
-    # Check 1: Outcome match - does delivery match contract?
+    # Check 0: Plan file exists - was planning phase completed?
     contract_id = run_data.get("contract_id") or run_data.get("plan", {}).get("contract_id")
+    plan_file_path = run_data.get("plan_file") or run_data.get("plan", {}).get("file")
+
+    plans_dir = project_root / "plans" / "active"
+    contract_exists = False
+    contract = {}
+
     if contract_id:
-        plans_dir = project_root / "plans" / "active"
         contract_file = plans_dir / f"{contract_id}.yaml"
+        if not contract_file.exists():
+            contract_file = plans_dir / f"{contract_id}.yml"
+
         if contract_file.exists():
+            contract_exists = True
             with open(contract_file) as f:
                 contract = yaml.safe_load(f) or {}
-
-            # Check if driver was specified and used
-            expected_driver = contract.get("driver")
-            actual_driver = run_data.get("driver")
-
-            if expected_driver and actual_driver and expected_driver == actual_driver:
-                review["checks"].append({
-                    "name": "outcome-match",
-                    "passed": True,
-                    "notes": f"Driver '{actual_driver}' matches contract",
-                })
-            elif expected_driver and not actual_driver:
-                review["checks"].append({
-                    "name": "outcome-match",
-                    "passed": False,
-                    "notes": f"Contract specifies driver '{expected_driver}' but no driver recorded in run",
-                })
-                review["reasons"].append("No driver recorded - cannot verify outcome match")
-            else:
-                review["checks"].append({
-                    "name": "outcome-match",
-                    "passed": True,
-                    "notes": "Contract executed (driver check not applicable)",
-                })
+            review["checks"].append({
+                "name": "plan-exists",
+                "passed": True,
+                "notes": f"Contract file found: {contract_file.name}",
+            })
         else:
+            review["checks"].append({
+                "name": "plan-exists",
+                "passed": False,
+                "notes": f"Contract file not found: {contract_id}.yaml in plans/active/",
+            })
+            review["reasons"].append("Contract/plan file missing - was PLAN phase completed?")
+    else:
+        review["checks"].append({
+            "name": "plan-exists",
+            "passed": False,
+            "notes": "No contract_id in run data - run must reference a contract",
+        })
+        review["reasons"].append("No contract reference - PLAN phase was skipped")
+
+    # Check 1: Outcome match - does delivery match contract?
+    if contract_exists:
+        # Check if driver was specified and used
+        expected_driver = contract.get("driver")
+        actual_driver = run_data.get("driver")
+
+        if expected_driver and actual_driver and expected_driver == actual_driver:
+            review["checks"].append({
+                "name": "outcome-match",
+                "passed": True,
+                "notes": f"Driver '{actual_driver}' matches contract",
+            })
+        elif expected_driver and not actual_driver:
             review["checks"].append({
                 "name": "outcome-match",
                 "passed": False,
-                "notes": f"Contract file not found: {contract_id}",
+                "notes": f"Contract specifies driver '{expected_driver}' but no driver recorded in run",
             })
-            review["reasons"].append("Contract file missing")
+            review["reasons"].append("No driver recorded - cannot verify outcome match")
+        else:
+            review["checks"].append({
+                "name": "outcome-match",
+                "passed": True,
+                "notes": "Contract executed (driver check not applicable)",
+            })
     else:
         review["checks"].append({
             "name": "outcome-match",
             "passed": False,
-            "notes": "No contract_id in run data",
+            "notes": "Cannot verify outcome match without contract file",
         })
-        review["reasons"].append("No contract reference in run")
+        review["reasons"].append("Contract file missing")
 
     # Check 2: Naming honesty - do component names match what they do?
     # This checks if adapters exist and have appropriate trust status
@@ -244,7 +378,6 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
 def complete_run(
     run_id: str,
     project_root: Optional[str | Path] = None,
-    skip_review: bool = False,
     force: bool = False,
 ) -> CompletionResult:
     """
@@ -253,10 +386,11 @@ def complete_run(
     This is the ONLY valid way to complete a PocketOps workflow.
     It enforces all VERIFY → COMPLETE gates and records the completion.
 
+    Review is ALWAYS mandatory. There is no skip option.
+
     Args:
         run_id: ID of the run to complete
         project_root: Path to project root (auto-detected if not provided)
-        skip_review: Skip review for low-risk operations (blocked for high-risk)
         force: Force completion even if gates fail (records override reason)
 
     Returns:
@@ -285,7 +419,6 @@ def complete_run(
     context = {
         "run_id": run_id,
         "project_root": str(project_root),
-        "skip_review": skip_review,
     }
 
     # Check all VERIFY → COMPLETE gates

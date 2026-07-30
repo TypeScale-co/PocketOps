@@ -15,22 +15,27 @@
 6. COMPLETE_RUN() REQUIRED — never declare "done" without calling it
 ```
 
-### Completion Requirement (Invariant 6)
+### Workflow Lifecycle Requirement (Invariant 6)
 
-**You CANNOT declare a workflow complete without calling `complete_run()`.**
+**You MUST call `create_run()` before execution and `complete_run()` after verification.**
 
 ```python
-from pocketops import complete_run
+from pocketops import create_run, complete_run
 
-result = complete_run(run_id="your-run-id")
+# BEFORE execution - creates run record
+run = create_run(contract_id="my-contract", driver="my-driver")
+
+# ... execute workflow ...
+# ... verify outcome ...
+
+# AFTER verification - enforces all gates
+result = complete_run(run_id=run.run_id)
 # Only if result.success can you tell user "done"
 ```
 
-What `complete_run()` enforces:
-- Runs reviewing-contracts checks automatically
-- Validates all gates (verification, review, etc.)
-- Archives the run to `runs/archive/`
-- Records completion with gate results
+What these functions enforce:
+- `create_run()`: Validates contract exists, driver exists, creates run record
+- `complete_run()`: Runs review, validates evidence, archives run
 
 **How to verify you actually completed:**
 ```bash

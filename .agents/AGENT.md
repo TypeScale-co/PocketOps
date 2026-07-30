@@ -2,30 +2,38 @@
 
 **You are operating within PocketOps, a framework for safe, verified automation.**
 
-## Completion Requirements
+## Workflow Lifecycle Requirements
 
-### You Cannot Declare "Done" Without Proof
+### Two Functions MUST Be Called
 
-Before telling the user a workflow is complete, you MUST verify:
+1. **`create_run()`** - BEFORE any execution
+2. **`complete_run()`** - AFTER verification passes
 
-1. **Run file archived**: `runs/current/` is empty (your run was moved to `runs/archive/`)
-2. **Review recorded**: The run file contains a `review:` section with `status: approved`
-3. **Verification passed**: The run file contains `verification: status: verified`
+### Before Execution: create_run()
 
-**How to check:**
-```bash
-# If this returns files, you're NOT done
-ls runs/current/
+```python
+from pocketops import create_run
+
+run = create_run(
+    contract_id="my-contract",  # Must exist in plans/active/
+    driver="my-driver",          # Must exist in drivers/
+    effects=[{"risk": "write", "scope": "external"}],
+)
+
+# Now you can execute using run.run_id
 ```
 
-If files exist in `runs/current/`, the workflow is incomplete. Call `complete_run()` first.
+What `create_run()` validates:
+- Contract file exists in `plans/active/`
+- Driver exists in `drivers/`
+- Creates run record in `runs/current/`
 
-### The Only Way to Complete a Workflow
+### After Verification: complete_run()
 
 ```python
 from pocketops import complete_run
 
-result = complete_run(run_id="your-run-id")
+result = complete_run(run_id=run.run_id)
 
 if result.success:
     # NOW you can tell the user it's done
@@ -35,10 +43,30 @@ else:
     print(f"Blocked: {result.message}")
 ```
 
-### What Happens If You Skip This
+What `complete_run()` validates:
+- Contract/plan file exists (was PLAN phase completed?)
+- Verification evidence is non-empty (not fake)
+- All review checks pass (outcome-match, naming-honesty, etc.)
 
-If you tell the user "done" without calling `complete_run()`:
-- The run stays in `runs/current/` (visible proof you didn't finish)
+### You Cannot Declare "Done" Without Proof
+
+Before telling the user a workflow is complete, verify:
+
+```bash
+# If this returns files, you're NOT done
+ls runs/current/
+```
+
+If files exist in `runs/current/`, the workflow is incomplete.
+
+### What Happens If You Skip These
+
+If you skip `create_run()`:
+- No run record exists
+- `complete_run()` will fail with "run file not found"
+
+If you skip `complete_run()`:
+- Run stays in `runs/current/` (visible proof you didn't finish)
 - No review is recorded
 - No gates were checked
 - The workflow is **incomplete**
