@@ -26,6 +26,11 @@ from pocketops.validation import (
     LayerViolationError,
     install_import_guard,
 )
+from pocketops.workflow import (
+    complete_run,
+    CompletionError,
+    CompletionResult,
+)
 
 __version__ = "1.0.0"
 
@@ -46,6 +51,10 @@ __all__ = [
     # Layer enforcement
     "LayerViolationError",
     "install_import_guard",
+    # Workflow completion (REQUIRED for finishing runs)
+    "complete_run",
+    "CompletionError",
+    "CompletionResult",
 ]
 
 # Auto-install import guard in strict mode

@@ -18,8 +18,16 @@ During **DRY RUN**, **APPROVAL**, and **EXECUTE** phases.
 ## Execution Flow
 
 ```
-Load Plan → Dry Run → Show Preview → Get Approval → Execute → Verify → Record
+Load Plan → Dry Run → Show Preview → Get Approval → Execute → Verify → complete_run()
 ```
+
+**CRITICAL**: Workflows are NOT complete until `complete_run()` is called. This function:
+- Runs the reviewing-contracts checks automatically
+- Enforces all VERIFY → COMPLETE gates
+- Records the completion with gate results
+- Archives the run
+
+You CANNOT declare a workflow "done" without calling `complete_run()`.
 
 ## Step 1: Dry Run
 
@@ -63,12 +71,43 @@ Run verification immediately:
 - Confirm outcome matches expectation
 - Collect evidence
 
-## Step 6: Handle Results
+## Step 6: Complete the Run (REQUIRED)
 
-**On verification success**:
-1. Run `reviewing-contracts` skill for independent review
-2. If review approved: report to user, archive plan and run
-3. If review rejected: return to BUILD or PLAN phase
+**You MUST call `complete_run()` to finalize any workflow.**
+
+```python
+from pocketops import complete_run
+
+# This enforces all gates and records completion
+result = complete_run(run_id="2024-07-30-banking-insights")
+
+if result.success:
+    print(f"Completed! Archived to: {result.archived_to}")
+else:
+    print(f"Blocked: {result.message}")
+```
+
+What `complete_run()` does:
+1. Runs reviewing-contracts checks automatically
+2. Saves review results to run file
+3. Checks all VERIFY → COMPLETE gates
+4. Blocks if any gate fails (unless force=True)
+5. Archives the run to runs/archive/
+
+**If you don't call `complete_run()`**:
+- The run stays in runs/current/ (not archived)
+- No review is recorded
+- The workflow is NOT considered complete
+- You have NOT finished the task
+
+## Step 7: Handle Results
+
+**On completion success**: Report to user with evidence
+
+**On completion blocked**:
+- Read the gate failure message
+- Fix the issue (missing verification, failed review check, etc.)
+- Call `complete_run()` again
 
 **On verification failure**: Enter iteration loop (observe → diagnose → fix → retry)
 
@@ -107,3 +146,5 @@ iterations: []  # If retry was needed
 3. Retry failed writes automatically without consent
 4. Hide failures from user
 5. Modify production data without explicit approval
+6. **Declare "done" without calling `complete_run()`** - the workflow is incomplete
+7. Bypass gates with force=True unless explicitly authorized by user

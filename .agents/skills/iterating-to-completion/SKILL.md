@@ -136,6 +136,25 @@ summary:
   components_improved: [adapters/hubspot]
 ```
 
+## Finalizing Success
+
+**After verification succeeds, you MUST call `complete_run()`:**
+
+```python
+from pocketops import complete_run
+
+result = complete_run(run_id=run_id)
+if not result.success:
+    # Gate failed - fix the issue and retry
+    diagnose_gate_failure(result)
+```
+
+The iteration loop doesn't end until `complete_run()` succeeds. If it fails due to a gate:
+- Treat it as another iteration
+- Diagnose why the gate failed
+- Fix the issue
+- Retry `complete_run()`
+
 ## User Communication
 
 **During** (brief): "Encountered pagination issue. Fixing and retrying."
@@ -145,3 +164,5 @@ summary:
 **After 5 failures**: "I've tried 5 times and am stuck on [specific issue]. Here's what I found: [full context]. Could you help with [specific ask]?"
 
 **Never say**: "Can you try running X?" / "What do you see when...?" / "Check your settings"
+
+**Never declare done without `complete_run()`**—the workflow is incomplete until the function succeeds.
