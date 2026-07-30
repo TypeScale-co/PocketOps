@@ -1,6 +1,6 @@
 name: cli
 kind: transport
-version: 1.0.0
+version: "1.0.0"
 
 description: |
   Command-line interface transport for executing CLI tools

@@ -7,6 +7,16 @@
 
 set -e
 
+# Helper: prefer .venv/bin/python if available
+get_python() {
+    if [ -f ".venv/bin/python" ]; then
+        echo ".venv/bin/python"
+    else
+        echo "python3"
+    fi
+}
+PYTHON=$(get_python)
+
 echo "PocketOps System Check"
 echo "======================"
 echo
@@ -49,9 +59,11 @@ fi
 
 # Virtual environment
 if [ -n "$VIRTUAL_ENV" ]; then
-    check "Virtual environment" "ok"
+    check "Virtual environment (active)" "ok"
+elif [ -d ".venv" ]; then
+    check "Virtual environment (.venv exists)" "ok"
 else
-    check "Virtual environment" "warn" "not activated"
+    check "Virtual environment" "warn" "not found"
 fi
 
 # Python packages
@@ -60,8 +72,8 @@ echo "Packages:"
 
 check_package() {
     local pkg="$1"
-    if python3 -c "import $pkg" 2>/dev/null; then
-        local version=$(python3 -c "import $pkg; print(getattr($pkg, '__version__', 'installed'))" 2>/dev/null || echo "installed")
+    if $PYTHON -c "import $pkg" 2>/dev/null; then
+        local version=$($PYTHON -c "import $pkg; print(getattr($pkg, '__version__', 'installed'))" 2>/dev/null || echo "installed")
         check "$pkg $version" "ok"
     else
         check "$pkg" "fail" "not installed"
@@ -79,7 +91,7 @@ echo "Optional Packages:"
 check_optional_package() {
     local pkg="$1"
     local import_name="${2:-$1}"
-    if python3 -c "import $import_name" 2>/dev/null; then
+    if $PYTHON -c "import $import_name" 2>/dev/null; then
         check "$pkg" "ok"
     else
         check "$pkg" "warn" "not installed (optional)"

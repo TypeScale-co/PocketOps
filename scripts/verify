@@ -2,10 +2,24 @@
 #
 # PocketOps Verification Script
 #
-# Runs all verification checks for components.
+# Runs all verification checks for components:
+# - Schema validation (Pydantic)
+# - Layer boundary enforcement (AST)
+# - Dependency validation
+# - Unit tests (if pytest available)
 #
 
 set -e
+
+# Helper: prefer .venv/bin/python if available
+get_python() {
+    if [ -f ".venv/bin/python" ]; then
+        echo ".venv/bin/python"
+    else
+        echo "python3"
+    fi
+}
+PYTHON=$(get_python)
 
 echo "PocketOps Verification"
 echo "======================"
@@ -19,11 +33,166 @@ NC='\033[0m' # No Color
 
 PASSED=0
 FAILED=0
+WARNINGS=0
+
+# Helper function to run a check
+run_check() {
+    local name="$1"
+    local cmd="$2"
+
+    if eval "$cmd" 2>/dev/null; then
+        echo -e "${GREEN}✓${NC} $name"
+        PASSED=$((PASSED + 1))
+        return 0
+    else
+        echo -e "${RED}✗${NC} $name"
+        FAILED=$((FAILED + 1))
+        return 1
+    fi
+}
+
+# Check if pocketops package is available
+echo "Checking pocketops package..."
+if $PYTHON -c "import pocketops" 2>/dev/null; then
+    echo -e "${GREEN}✓${NC} pocketops package available"
+    POCKETOPS_AVAILABLE=true
+else
+    echo -e "${YELLOW}!${NC} pocketops package not installed, using basic YAML validation"
+    echo "  Run: pip install -e . (from project root)"
+    POCKETOPS_AVAILABLE=false
+    WARNINGS=$((WARNINGS + 1))
+fi
+
+# Schema validation
+echo
+echo "Schema Validation"
+echo "-----------------"
+
+if [ "$POCKETOPS_AVAILABLE" = true ]; then
+    # Use pocketops schema validation
+    SCHEMA_OUTPUT=$($PYTHON -c "
+import sys
+from pocketops.validation.manifest import validate_all_manifests, format_errors
+
+valid, manifests, errors = validate_all_manifests('.')
+
+# Print summary
+total = sum(len(m) for m in manifests.values())
+print(f'Validated {total} manifests')
+for kind, items in manifests.items():
+    if items:
+        print(f'  {kind}: {len(items)} ({', '.join(sorted(items.keys()))})')
+
+if errors:
+    print()
+    print(format_errors(errors))
+    sys.exit(1)
+" 2>&1) && SCHEMA_RESULT=0 || SCHEMA_RESULT=1
+
+    echo "$SCHEMA_OUTPUT"
+
+    if [ $SCHEMA_RESULT -eq 0 ]; then
+        echo -e "${GREEN}✓${NC} Schema validation passed"
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "${RED}✗${NC} Schema validation failed"
+        FAILED=$((FAILED + 1))
+    fi
+else
+    # Fallback to basic YAML validation
+    echo "Using basic YAML validation..."
+    YAML_ERRORS=0
+    for manifest in $(find . -name "manifest.yaml" -type f 2>/dev/null | grep -v node_modules | grep -v .venv); do
+        if $PYTHON -c "import yaml; yaml.safe_load(open('$manifest'))" 2>/dev/null; then
+            echo -e "  ${GREEN}✓${NC} $manifest"
+        else
+            echo -e "  ${RED}✗${NC} $manifest - invalid YAML"
+            YAML_ERRORS=$((YAML_ERRORS + 1))
+        fi
+    done
+
+    if [ $YAML_ERRORS -eq 0 ]; then
+        echo -e "${GREEN}✓${NC} YAML validation passed"
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "${RED}✗${NC} $YAML_ERRORS YAML error(s)"
+        FAILED=$((FAILED + 1))
+    fi
+fi
+
+# Layer boundary checks
+echo
+echo "Layer Boundary Checks"
+echo "---------------------"
+
+if [ "$POCKETOPS_AVAILABLE" = true ]; then
+    LAYER_OUTPUT=$($PYTHON -c "
+import sys
+from pocketops.validation.layer import check_layer_violations, format_violations
+
+violations = check_layer_violations('.')
+
+if violations:
+    print(format_violations(violations))
+    sys.exit(1)
+else:
+    print('No layer violations found')
+" 2>&1) && LAYER_RESULT=0 || LAYER_RESULT=1
+
+    echo "$LAYER_OUTPUT"
+
+    if [ $LAYER_RESULT -eq 0 ]; then
+        echo -e "${GREEN}✓${NC} Layer boundaries respected"
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "${RED}✗${NC} Layer violations found"
+        FAILED=$((FAILED + 1))
+    fi
+else
+    echo -e "${YELLOW}!${NC} Skipped (pocketops not available)"
+    WARNINGS=$((WARNINGS + 1))
+fi
+
+# Dependency validation
+echo
+echo "Dependency Validation"
+echo "---------------------"
+
+if [ "$POCKETOPS_AVAILABLE" = true ]; then
+    DEP_OUTPUT=$($PYTHON -c "
+import sys
+from pocketops.validation.manifest import validate_dependencies, format_errors
+
+valid, errors = validate_dependencies('.')
+
+if errors:
+    print(format_errors(errors))
+    sys.exit(1)
+else:
+    print('All dependencies resolved')
+" 2>&1) && DEP_RESULT=0 || DEP_RESULT=1
+
+    echo "$DEP_OUTPUT"
+
+    if [ $DEP_RESULT -eq 0 ]; then
+        echo -e "${GREEN}✓${NC} Dependencies valid"
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "${RED}✗${NC} Dependency errors found"
+        FAILED=$((FAILED + 1))
+    fi
+else
+    echo -e "${YELLOW}!${NC} Skipped (pocketops not available)"
+    WARNINGS=$((WARNINGS + 1))
+fi
 
 # Run Python tests if pytest is available
-if command -v pytest &> /dev/null; then
-    echo "Running tests..."
-    if pytest -v --tb=short 2>/dev/null; then
+echo
+echo "Unit Tests"
+echo "----------"
+
+if $PYTHON -c "import pytest" 2>/dev/null; then
+    if $PYTHON -m pytest -v --tb=short 2>/dev/null; then
         echo -e "${GREEN}✓${NC} Tests passed"
         PASSED=$((PASSED + 1))
     else
@@ -32,40 +201,26 @@ if command -v pytest &> /dev/null; then
     fi
 else
     echo -e "${YELLOW}!${NC} pytest not installed, skipping tests"
+    WARNINGS=$((WARNINGS + 1))
 fi
-
-# Verify manifests are valid YAML
-echo
-echo "Verifying manifests..."
-
-verify_manifest() {
-    local file="$1"
-    if python3 -c "import yaml; yaml.safe_load(open('$file'))" 2>/dev/null; then
-        echo -e "  ${GREEN}✓${NC} $file"
-        PASSED=$((PASSED + 1))
-    else
-        echo -e "  ${RED}✗${NC} $file - invalid YAML"
-        FAILED=$((FAILED + 1))
-    fi
-}
-
-# Find all manifest files
-for manifest in $(find . -name "manifest.yaml" -type f 2>/dev/null); do
-    verify_manifest "$manifest"
-done
 
 # Summary
 echo
 echo "Verification Summary"
-echo "-------------------"
-echo -e "Passed: ${GREEN}$PASSED${NC}"
-echo -e "Failed: ${RED}$FAILED${NC}"
+echo "===================="
+echo -e "Passed:   ${GREEN}$PASSED${NC}"
+echo -e "Failed:   ${RED}$FAILED${NC}"
+echo -e "Warnings: ${YELLOW}$WARNINGS${NC}"
 echo
 
 if [ $FAILED -eq 0 ]; then
-    echo -e "${GREEN}All verifications passed!${NC}"
+    if [ $WARNINGS -gt 0 ]; then
+        echo -e "${YELLOW}Verification passed with warnings${NC}"
+    else
+        echo -e "${GREEN}All verifications passed!${NC}"
+    fi
     exit 0
 else
-    echo -e "${RED}Some verifications failed${NC}"
+    echo -e "${RED}Verification failed${NC}"
     exit 1
 fi

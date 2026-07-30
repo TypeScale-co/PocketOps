@@ -1,6 +1,6 @@
 name: ssh
 kind: transport
-version: 1.0.0
+version: "1.0.0"
 
 description: |
   SSH transport for remote command execution with key-based

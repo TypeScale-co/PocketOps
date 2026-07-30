@@ -1,6 +1,6 @@
 name: browser
 kind: transport
-version: 1.0.0
+version: "1.0.0"
 
 description: |
   Browser automation transport using Playwright for web

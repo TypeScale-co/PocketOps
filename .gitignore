@@ -50,9 +50,22 @@ tmp/
 temp/
 *.tmp
 
-# Run evidence (may contain sensitive data)
+# Run outputs (may contain sensitive data)
+runs/current/*.yaml
+runs/current/*.json
+runs/current/*.md
+runs/archive/*/*.yaml
+runs/archive/*/*.json
+runs/archive/*/*.md
+!runs/current/.gitkeep
+!runs/archive/.gitkeep
 runs/current/evidence/
 runs/archive/*/evidence/
+
+# Local data exports
+exports/
+banking-exports/
+banking-reports/
 
 # Local configuration (keep examples)
 config/environments/*.yaml

@@ -1,6 +1,6 @@
 name: sql
 kind: transport
-version: 1.0.0
+version: "1.0.0"
 
 description: |
   SQL database transport for executing queries with connection

@@ -1,6 +1,6 @@
 name: filesystem
 kind: transport
-version: 1.0.0
+version: "1.0.0"
 
 description: |
   Local filesystem transport for file operations with

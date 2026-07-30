@@ -8,6 +8,15 @@
 
 set -e
 
+# Helper: prefer .venv/bin/python if available
+get_python() {
+    if [ -f ".venv/bin/python" ]; then
+        echo ".venv/bin/python"
+    else
+        echo "python3"
+    fi
+}
+
 echo "PocketOps Bootstrap"
 echo "==================="
 echo
