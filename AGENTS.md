@@ -12,7 +12,32 @@
 3. EXTERNAL WRITES REQUIRE DRY-RUN + APPROVAL — never skip
 4. ITERATE UP TO 5 TIMES — then escalate with full context
 5. BUILD REUSABLE COMPONENTS — never write one-off scripts
+6. COMPLETE_RUN() REQUIRED — never declare "done" without calling it
 ```
+
+### Completion Requirement (Invariant 6)
+
+**You CANNOT declare a workflow complete without calling `complete_run()`.**
+
+```python
+from pocketops import complete_run
+
+result = complete_run(run_id="your-run-id")
+# Only if result.success can you tell user "done"
+```
+
+What `complete_run()` enforces:
+- Runs reviewing-contracts checks automatically
+- Validates all gates (verification, review, etc.)
+- Archives the run to `runs/archive/`
+- Records completion with gate results
+
+**How to verify you actually completed:**
+```bash
+ls runs/current/  # Must be empty
+```
+
+If files exist in `runs/current/`, you are NOT done. See `.agents/AGENT.md` for details.
 
 ---
 
@@ -213,6 +238,7 @@ See `docs/terminology.md` for definitions. See `docs/safety-and-approvals.md` fo
 | `building-drivers` | Create/extend workflow scripts |
 | `executing-drivers` | Run workflows with approval gates |
 | `verifying-outcomes` | Confirm real-world results |
+| `reviewing-contracts` | Independent review before completion (via complete_run) |
 | `iterating-to-completion` | Autonomous feedback loops (max 5 attempts) |
 
 ---
