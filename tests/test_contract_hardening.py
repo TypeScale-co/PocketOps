@@ -38,13 +38,114 @@ def contract_data(**overrides):
             "expected_agent_access": True,
         },
         "access_discovery": {
-            "official_api": "unavailable",
-            "delegated_provider": "available",
-            "credential_flow": "planned",
+            "official_api": {
+                "status": "unavailable",
+                "evidence": [
+                    {
+                        "kind": "api_probe",
+                        "reference": "probe://bank/direct-api",
+                        "finding": "No supported direct personal-account API",
+                    }
+                ],
+            },
+            "delegated_provider": {
+                "status": "available",
+                "operationally_obtainable": True,
+                "evidence": [
+                    {
+                        "kind": "official_documentation",
+                        "reference": "https://provider.example/docs/banking",
+                        "finding": "Provider documents production bank access",
+                    },
+                    {
+                        "kind": "provider_account",
+                        "reference": "provider-account://verified",
+                        "finding": "Required product and institution are enabled",
+                    },
+                ],
+            },
+            "credential_flow": {
+                "status": "available",
+                "operationally_obtainable": True,
+                "evidence": [
+                    {
+                        "kind": "official_documentation",
+                        "reference": "https://provider.example/docs/oauth",
+                        "finding": "Provider documents hosted authorization",
+                    },
+                    {
+                        "kind": "browser_probe",
+                        "reference": "probe://hosted-authorization",
+                        "finding": "Hosted authorization launch was exercised",
+                    },
+                ],
+            },
+        },
+        "provider_provisioning": {
+            "provider": "banking-provider",
+            "status": "ready",
+            "user_work_type": "none",
+            "agent_can_complete": True,
+            "authorization_mode": "secret_and_browser",
+            "stores_local_credentials": True,
+            "creates_external_grant": True,
+            "evidence": [
+                {
+                    "kind": "provider_account",
+                    "reference": "provider-account://verified",
+                    "finding": "Provider account and product access are ready",
+                }
+            ],
         },
         "driver": "banking-insights",
     }
     data.update(overrides)
+    return data
+
+
+def access_blocked_contract_data():
+    data = contract_data(
+        target_completion_status="capability_built_access_blocked"
+    )
+    data["access_discovery"]["delegated_provider"] = {
+        "status": "conditionally_available",
+        "blockers": ["Provider production approval is pending"],
+        "evidence": [
+            {
+                "kind": "official_documentation",
+                "reference": "https://provider.example/docs/production",
+                "finding": "Production approval is required",
+            }
+        ],
+    }
+    data["access_discovery"]["credential_flow"] = {
+        "status": "operator_blocked",
+        "blockers": ["Provider account is not production-enabled"],
+        "evidence": [
+            {
+                "kind": "official_documentation",
+                "reference": "https://provider.example/docs/oauth",
+                "finding": "OAuth requires production access",
+            }
+        ],
+    }
+    data["provider_provisioning"] = {
+        "provider": "banking-provider",
+        "status": "operator_blocked",
+        "user_work_type": "commercial_approval",
+        "agent_can_complete": False,
+        "authorization_mode": "secret_and_browser",
+        "stores_local_credentials": True,
+        "creates_external_grant": True,
+        "required_actions": ["Obtain provider production approval"],
+        "evidence": [
+            {
+                "kind": "official_documentation",
+                "reference": "https://provider.example/docs/production",
+                "finding": "Production approval is required",
+            }
+        ],
+    }
     return data
 
 
@@ -94,6 +195,103 @@ class ContractSchemaTests(unittest.TestCase):
                 )
             )
 
+    def test_ready_status_rejects_conditional_provider_access(self):
+        data = contract_data()
+        data["access_discovery"]["delegated_provider"] = {
+            "status": "conditionally_available",
+            "operationally_obtainable": False,
+            "blockers": ["Full provider production approval is pending"],
+            "evidence": [
+                {
+                    "kind": "official_documentation",
+                    "reference": "https://provider.example/docs/production",
+                    "finding": "Institution requires full production access",
+                }
+            ],
+        }
+        data["access_discovery"]["credential_flow"] = {
+            "status": "operator_blocked",
+            "blockers": ["Provider production account is unavailable"],
+            "evidence": [
+                {
+                    "kind": "official_documentation",
+                    "reference": "https://provider.example/docs/oauth",
+                    "finding": "OAuth requires production access",
+                }
+            ],
+        }
+        data["provider_provisioning"] = {
+            "provider": "banking-provider",
+            "status": "operator_blocked",
+            "user_work_type": "commercial_approval",
+            "agent_can_complete": False,
+            "authorization_mode": "secret_and_browser",
+            "stores_local_credentials": True,
+            "creates_external_grant": True,
+            "required_actions": ["Obtain provider production approval"],
+            "evidence": [
+                {
+                    "kind": "official_documentation",
+                    "reference": "https://provider.example/docs/production",
+                    "finding": "Production approval is required",
+                }
+            ],
+        }
+        with self.assertRaisesRegex(
+            ValidationError, "capability_ready_not_connected requires"
+        ):
+            OutcomeContract(**data)
+
+    def test_blocked_provider_uses_truthful_completion_status(self):
+        data = access_blocked_contract_data()
+        contract = OutcomeContract(**data)
+        self.assertEqual(
+            contract.target_completion_status.value,
+            "capability_built_access_blocked",
+        )
+
+    def test_available_access_requires_authoritative_evidence(self):
+        data = contract_data()
+        data["access_discovery"]["delegated_provider"]["evidence"] = [
+            {
+                "kind": "provider_account",
+                "reference": "provider-account://verified",
+                "finding": "Account appears enabled",
+            }
+        ]
+        with self.assertRaisesRegex(
+            ValidationError, "official_documentation evidence"
+        ):
+            OutcomeContract(**data)
+
+    def test_access_discovery_rejects_free_form_status_claims(self):
+        data = contract_data()
+        data["access_discovery"]["delegated_provider"] = (
+            "available through a provider"
+        )
+        with self.assertRaises(ValidationError):
+            OutcomeContract(**data)
+
+    def test_ready_provider_rejects_technical_user_onboarding(self):
+        data = contract_data()
+        data["provider_provisioning"]["user_work_type"] = "technical"
+        with self.assertRaisesRegex(
+            ValidationError, "cannot be ready while technical user work"
+        ):
+            OutcomeContract(**data)
+
+    def test_connect_contract_requires_ready_provider_provisioning(self):
+        data = contract_data(
+            raw_request="Connect my banking account",
+            contract_type="connect_capability",
+            target_completion_status="capability_connected",
+            provider_provisioning=None,
+        )
+        with self.assertRaisesRegex(
+            ValidationError, "provider provisioning to be ready"
+        ):
+            OutcomeContract(**data)
+
 
 class CompletionHardeningTests(unittest.TestCase):
     def setUp(self):
@@ -124,9 +322,37 @@ class CompletionHardeningTests(unittest.TestCase):
                 },
                 "commands": {
                     "plan": {"effects": []},
-                    "setup-auth": {"effects": []},
+                    "setup-auth": {
+                        "effects": [],
+                        "behavior": {
+                            "default_invocation": True,
+                            "launches_secure_collection": True,
+                        },
+                    },
+                    "authorize": {
+                        "effects": ["read"],
+                        "behavior": {
+                            "default_invocation": True,
+                            "opens_browser": True,
+                        },
+                    },
+                    "connect": {
+                        "effects": ["read"],
+                        "behavior": {
+                            "default_invocation": True,
+                            "validates_connection": True,
+                        },
+                    },
                     "execute": {"effects": ["read"]},
                     "verify": {"effects": ["read"]},
+                    "rollback": {
+                        "effects": ["local_write"],
+                        "supported": True,
+                        "behavior": {
+                            "default_invocation": True,
+                            "removes_local_credentials": True,
+                        },
+                    },
                 },
             },
         )
@@ -195,6 +421,28 @@ class CompletionHardeningTests(unittest.TestCase):
                     "evidence": {
                         "captured_at": "2026-07-30T12:05:00",
                         "artifacts": ["adapter tests", "driver tests"],
+                        "command_behavior": {
+                            "setup-auth": {
+                                "passed": True,
+                                "default_invocation": True,
+                                "launches_secure_collection": True,
+                            },
+                            "authorize": {
+                                "passed": True,
+                                "default_invocation": True,
+                                "opens_browser": True,
+                            },
+                            "connect": {
+                                "passed": True,
+                                "default_invocation": True,
+                                "validates_connection": True,
+                            },
+                            "rollback": {
+                                "passed": True,
+                                "default_invocation": True,
+                                "removes_local_credentials": True,
+                            },
+                        },
                     },
                 },
             }
@@ -210,6 +458,70 @@ class CompletionHardeningTests(unittest.TestCase):
         result = complete_run(run.run_id, project_root=self.root)
         self.assertTrue(result.success)
         self.assertIn("capability_ready_not_connected", result.message)
+
+    def test_access_blocked_capability_can_finish_truthfully(self):
+        self._write_yaml(
+            "plans/active/banking-insights.yaml",
+            access_blocked_contract_data(),
+        )
+        subprocess.run(["git", "add", "."], cwd=self.root, check=True)
+        subprocess.run(
+            ["git", "commit", "-qm", "blocked access contract"],
+            cwd=self.root,
+            check=True,
+        )
+        run = create_run(
+            contract_id="banking-insights",
+            driver="banking-insights",
+            project_root=self.root,
+        )
+        run_path = Path(run.run_file)
+        run_data = yaml.safe_load(run_path.read_text())
+        run_data.update(
+            {
+                "completion_status": "capability_built_access_blocked",
+                "user_facing_status": "capability_built_access_blocked",
+                "connection": {
+                    "status": "not_connected",
+                    "credential_status": "provider_blocked",
+                },
+                "verification": {
+                    "status": "verified",
+                    "checks": [{"name": "build-tests", "passed": True}],
+                    "evidence": {
+                        "captured_at": "2026-07-30T12:05:00",
+                        "artifacts": ["adapter tests", "driver tests"],
+                        "command_behavior": {
+                            "setup-auth": {
+                                "passed": True,
+                                "default_invocation": True,
+                                "launches_secure_collection": True,
+                            },
+                            "authorize": {
+                                "passed": True,
+                                "default_invocation": True,
+                                "opens_browser": True,
+                            },
+                            "connect": {
+                                "passed": True,
+                                "default_invocation": True,
+                                "validates_connection": True,
+                            },
+                            "rollback": {
+                                "passed": True,
+                                "default_invocation": True,
+                                "removes_local_credentials": True,
+                            },
+                        },
+                    },
+                },
+            }
+        )
+        self._write_yaml(str(run_path.relative_to(self.root)), run_data)
+
+        result = complete_run(run.run_id, project_root=self.root)
+        self.assertTrue(result.success)
+        self.assertIn("capability_built_access_blocked", result.message)
 
     def test_protected_framework_change_rejects_ordinary_run(self):
         run, run_path = self._ready_run()
@@ -254,6 +566,63 @@ class CompletionHardeningTests(unittest.TestCase):
 
         with self.assertRaisesRegex(CompletionError, "lifecycle"):
             complete_run(run.run_id, project_root=self.root)
+
+    def test_build_rejects_command_names_without_behavioral_evidence(self):
+        run, run_path = self._ready_run()
+        run_data = yaml.safe_load(run_path.read_text())
+        run_data["verification"]["evidence"].pop("command_behavior")
+        self._write_yaml(str(run_path.relative_to(self.root)), run_data)
+
+        with self.assertRaisesRegex(CompletionError, "behaviorally verify"):
+            complete_run(run.run_id, project_root=self.root)
+
+    def test_build_rejects_instruction_only_rollback(self):
+        run, run_path = self._ready_run()
+        run_data = yaml.safe_load(run_path.read_text())
+        run_data["verification"]["evidence"]["command_behavior"]["rollback"][
+            "removes_local_credentials"
+        ] = False
+        self._write_yaml(str(run_path.relative_to(self.root)), run_data)
+
+        with self.assertRaisesRegex(
+            CompletionError, "rollback must behaviorally verify"
+        ):
+            complete_run(run.run_id, project_root=self.root)
+
+    def test_build_rejects_hidden_flag_for_normal_credential_flow(self):
+        run, _ = self._ready_run()
+        manifest_path = self.root / "drivers/banking-insights/manifest.yaml"
+        manifest = yaml.safe_load(manifest_path.read_text())
+        manifest["commands"]["setup-auth"]["behavior"]["default_invocation"] = False
+        self._write_yaml("drivers/banking-insights/manifest.yaml", manifest)
+
+        with self.assertRaisesRegex(
+            CompletionError, "setup-auth must behaviorally verify"
+        ):
+            complete_run(run.run_id, project_root=self.root)
+
+    def test_secret_only_integration_does_not_require_browser_oauth(self):
+        contract_path = self.root / "plans/active/banking-insights.yaml"
+        contract = yaml.safe_load(contract_path.read_text())
+        provisioning = contract["provider_provisioning"]
+        provisioning["authorization_mode"] = "secret_collection"
+        provisioning["creates_external_grant"] = False
+        self._write_yaml("plans/active/banking-insights.yaml", contract)
+
+        manifest_path = self.root / "drivers/banking-insights/manifest.yaml"
+        manifest = yaml.safe_load(manifest_path.read_text())
+        manifest["commands"].pop("authorize")
+        self._write_yaml("drivers/banking-insights/manifest.yaml", manifest)
+        subprocess.run(["git", "add", "."], cwd=self.root, check=True)
+        subprocess.run(
+            ["git", "commit", "-qm", "secret-only authorization"],
+            cwd=self.root,
+            check=True,
+        )
+
+        run, _ = self._ready_run()
+        result = complete_run(run.run_id, project_root=self.root)
+        self.assertTrue(result.success)
 
     def test_execute_workflow_requires_live_source_read(self):
         contract_path = self.root / "plans/active/banking-insights.yaml"

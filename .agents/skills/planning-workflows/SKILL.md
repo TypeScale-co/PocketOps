@@ -89,11 +89,22 @@ side_effects:
     approval: preview-required
 
 access_discovery:
-  official_api: checked | available | unavailable | blocked
-  sdk_or_cli: checked | available | unavailable | blocked
-  delegated_provider: checked | available | unavailable | blocked
-  browser_flow: checked | feasible | blocked
-  credential_flow: planned | blocked
+  delegated_provider:
+    status: conditionally_available | available | operator_blocked
+    operationally_obtainable: true | false
+    evidence: [<official and operational evidence>]
+    blockers: []
+
+provider_provisioning:
+  provider: <name>
+  status: not_required | ready | agent_action_required | user_action_required | operator_blocked
+  user_work_type: none | basic_consent | technical | commercial_approval
+  agent_can_complete: true | false
+  authorization_mode: none | secret_collection | browser_oauth | secret_and_browser
+  stores_local_credentials: true | false
+  creates_external_grant: true | false
+  required_actions: []
+  evidence: []
 
 verification:
   strategy: retrieve-and-compare
@@ -111,7 +122,9 @@ condition.
 
 - `build_capability`: build and test reusable components. If credentials are
   missing, include `setup-auth`, `authorize`, or `connect`, record the missing
-  state, and stop at `capability_ready_not_connected`.
+  state, and stop at `capability_ready_not_connected` only when provider access
+  and provisioning are operationally ready. Otherwise stop at
+  `capability_built_access_blocked`.
 - `connect_capability`: run the credential flow and verify a real external read.
 - `execute_workflow`: run the connected capability and verify the requested
   real-world outcome.
@@ -147,6 +160,11 @@ Fallback is valid only when the user explicitly requested that input mode or
 explicitly accepts a reduced scope after access discovery. Mark it in the
 contract with `source_system_request`, `fallback_mode`, and the access discovery
 statuses.
+
+Provider/developer onboarding is not end-user authorization. Record commercial
+approval, developer accounts, product enablement, redirect registration, and
+similar prerequisites under `provider_provisioning`. Technical or commercial
+user work prevents `capability_ready_not_connected`.
 
 ## Handoff
 

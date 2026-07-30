@@ -98,10 +98,17 @@ If you skip `complete_run()`:
    - Use `contract_type: build_capability`
    - Use `capability_ready_not_connected` when credentials are missing
    - Provide a real adapter/driver path and `setup-auth`, `authorize`, or `connect`
+   - Use `capability_built_access_blocked` when provider access is only conditional
+   - Reserve `capability_ready_not_connected` for operationally proven access
 8. **Never overstate completion**
    - `capability_built` is not `capability_connected`
    - `capability_ready_not_connected` is not `outcome_delivered`
    - `execute_workflow` needs live source-system verification
+9. **Never treat command names as implementation proof**
+   - Default setup must launch secure collection without an extra flag
+   - Authorization must open the browser flow
+   - Connect must validate real access
+   - Supported rollback must remove credentials or revoke access
 
 ## Self-Check Before "Done"
 
@@ -114,5 +121,8 @@ Ask yourself:
 6. Does the run's `completion_status` match its reviewed contract type?
 7. Does `user_facing_status` exactly match `completion_status`?
 8. Did this ordinary task leave protected enforcement files unchanged?
+9. Does access discovery include authoritative and operational evidence?
+10. Is provider provisioning separate from end-user authorization?
+11. Did behavioral evidence exercise credential, browser, connect, and rollback defaults?
 
 If any answer is "no" or "I don't know", you are NOT done.

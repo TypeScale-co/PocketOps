@@ -161,7 +161,7 @@ connection:
   status: not_assessed | not_connected | connected
   credential_status: not_assessed | missing | configured | valid | blocked
 
-completion_status: capability_built | capability_ready_not_connected | capability_connected | outcome_delivered
+completion_status: capability_built | capability_built_access_blocked | capability_ready_not_connected | capability_connected | outcome_delivered
 user_facing_status: <must equal completion_status>
 
 iterations: []  # If retry was needed

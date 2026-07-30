@@ -40,6 +40,23 @@ connection:
   credential_status: missing
 ```
 
+This status is valid only after provider provisioning is ready. If creating a
+developer/provider account, obtaining commercial approval, enabling products,
+or registering callback infrastructure remains unresolved, use
+`capability_built_access_blocked`.
+
+## Provider Provisioning vs. User Authorization
+
+Keep these phases separate:
+
+- Provider provisioning: developer account, API product access, billing or
+  commercial approval, callback/redirect registration.
+- End-user authorization: sign in, consent, choose an account, or paste a
+  user-owned secret into PocketOps secure collection.
+
+The agent owns provider provisioning whenever it can automate it. Technical or
+commercial user work is a blocker, not "missing credentials."
+
 After credentials are collected and validated, use a `connect_capability`
 contract and report `capability_connected`.
 
@@ -119,6 +136,14 @@ The script:
 3. Writes to `.env` file with restrictive permissions
 4. Browser shows confirmation, script exits
 
+The driver's default `setup-auth` command must launch this collection flow
+directly. Do not require an undocumented `--collect`, `--interactive`, or
+similar flag.
+
+For OAuth or hosted authorization, the default `authorize` command must open
+the returned URL in the browser. Printing a URL for the user to find and launch
+is not a complete authorization command.
+
 ### Step 6: Confirm
 
 After script completes successfully:
@@ -181,6 +206,9 @@ Some tokens expire. When adapter returns `token_expired`:
 3. **Don't store tokens in code** - always use .env
 4. **Don't log token values** - even in debug output
 5. **Don't require technical knowledge** - guide every click
+6. **Don't conflate provider setup with account consent**
+7. **Don't hide normal credential collection behind an extra flag**
+8. **Don't print an authorization URL without opening it**
 
 ## Future Improvements
 

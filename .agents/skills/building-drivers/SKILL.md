@@ -63,6 +63,18 @@ Credential collection is agent-run. The user may click, sign in, consent, or
 paste a secret into the secure collection window; they must not edit files or
 run setup commands.
 
+Required default behavior:
+
+| Command | Default behavior |
+|---------|------------------|
+| `setup-auth` | Opens secure credential collection when authorization mode collects secrets |
+| `authorize` | Opens the browser experience when authorization mode uses OAuth |
+| `connect` | Completes authorization and validates external access |
+| `rollback` | Removes local credentials or revokes external access |
+
+Do not require hidden flags for the normal flow. A command that only prints
+instructions or a URL does not satisfy the behavior.
+
 ## Manifest Schema
 
 ```yaml
@@ -108,6 +120,34 @@ verification:
   checks: [message_exists, content_matches]
 ```
 
+Credential-dependent command manifests declare behavior explicitly:
+
+```yaml
+commands:
+  setup-auth:
+    behavior:
+      default_invocation: true
+      launches_secure_collection: true
+  authorize:
+    behavior:
+      default_invocation: true
+      opens_browser: true
+  connect:
+    behavior:
+      default_invocation: true
+      validates_connection: true
+  rollback:
+    supported: true
+    behavior:
+      default_invocation: true
+      removes_local_credentials: true
+```
+
+The contract's `provider_provisioning.authorization_mode` selects which setup
+commands are required: `secret_collection`, `browser_oauth`, or
+`secret_and_browser`. `connect` validation is required for every credentialed
+integration. Rollback must undo at least one declared credential/grant effect.
+
 ## Reusability
 
 Drivers should be parameterized for reuse:
@@ -124,7 +164,8 @@ Drivers can compose other drivers for complex workflows. Keep primitive drivers 
 ## Handoff
 
 Once driver is complete:
-1. All commands work
+1. All commands work from their default invocation
 2. Manifest accurate
 3. Dry-run produces useful preview
-4. Proceed to `executing-drivers`
+4. Credential, browser, connection, and rollback behaviors have test evidence
+5. Proceed to `executing-drivers`

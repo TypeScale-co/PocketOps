@@ -100,10 +100,30 @@ Review contract type and terminal status together:
 A credential-dependent build with missing credentials may pass only as
 `capability_ready_not_connected`. It must not pass as `outcome_delivered`.
 
+Use `capability_ready_not_connected` only when:
+
+- access discovery includes official documentation and operational probe/account evidence;
+- the access path is `available` and `operationally_obtainable`;
+- provider provisioning is `ready` or `not_required`;
+- remaining user work is basic account consent, not technical setup or commercial approval.
+
+Otherwise require `capability_built_access_blocked`.
+
 `user_facing_status` must equal `completion_status`; otherwise reject the
 planned completion claim before the agent responds.
 
-### 6. Framework Integrity
+### 6. Credential Behavior
+
+For credential-dependent drivers, reject command-name-only implementations.
+Manifest declarations and run evidence must agree that default commands perform
+the behaviors selected by `provider_provisioning.authorization_mode`, validate
+the connection, and remove local credentials or revoke external access on
+rollback.
+
+Reject hidden normal-flow flags, printed-only authorization URLs,
+instruction-only rollback, and command evidence without observed behavior.
+
+### 7. Framework Integrity
 
 For every contract except `framework_change`, reject modifications to
 `AGENTS.md`, anything under `.agents/` or `pocketops/`, and `scripts/verify`.
@@ -141,6 +161,10 @@ review:
       notes: <explanation>
 
     - name: capability-lifecycle
+      passed: true | false
+      notes: <explanation>
+
+    - name: access-feasibility
       passed: true | false
       notes: <explanation>
 

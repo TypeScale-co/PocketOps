@@ -13,12 +13,17 @@ Environment variables:
 import os
 
 from pocketops.schemas import (
+    AccessPathStatus,
+    AuthorizationMode,
     TransportManifest,
     AdapterManifest,
     CompletionStatus,
     ContractType,
     DriverManifest,
+    EvidenceKind,
     OutcomeContract,
+    ProvisioningStatus,
+    UserWorkType,
 )
 from pocketops.gates import Phase, GateRegistry, GateResult
 from pocketops.validation import (
@@ -46,6 +51,11 @@ __all__ = [
     "DriverManifest",
     "ContractType",
     "CompletionStatus",
+    "AccessPathStatus",
+    "AuthorizationMode",
+    "EvidenceKind",
+    "ProvisioningStatus",
+    "UserWorkType",
     "OutcomeContract",
     # Gates
     "Phase",

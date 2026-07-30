@@ -72,6 +72,7 @@ both, and do not overstate the latter:
 | Completion status | Meaning |
 |-------------------|---------|
 | `capability_built` | Reusable local capability is built; no connection is required |
+| `capability_built_access_blocked` | Components exist, but provider or access prerequisites are unresolved |
 | `capability_ready_not_connected` | Real access/auth path is built, credentials are missing |
 | `capability_connected` | Credentials and live source access are verified |
 | `outcome_delivered` | The requested workflow ran and its real-world outcome is verified |
@@ -79,6 +80,35 @@ both, and do not overstate the latter:
 Set `user_facing_status` to the same value. Contract review rejects a mismatch.
 Only `connect_capability` and `execute_workflow` can prove live source access;
 build tests alone cannot support `capability_connected` or `outcome_delivered`.
+
+For a credential-dependent capability build, evidence must include observed
+default command behavior:
+
+```yaml
+verification:
+  evidence:
+    command_behavior:
+      setup-auth:
+        passed: true
+        default_invocation: true
+        launches_secure_collection: true
+      authorize:
+        passed: true
+        default_invocation: true
+        opens_browser: true
+      connect:
+        passed: true
+        default_invocation: true
+        validates_connection: true
+      rollback:
+        passed: true
+        default_invocation: true
+        removes_local_credentials: true
+```
+
+Checking command names is insufficient. Tests must invoke default behavior and
+observe the secure collector, browser launcher, connection validation, and
+credential removal or revocation boundary.
 
 ## Contract Review Gate
 

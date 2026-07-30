@@ -437,6 +437,85 @@ def _commands(driver_data: dict) -> set[str]:
     return set()
 
 
+def _command_behavior(driver_data: dict, command_name: str) -> dict:
+    commands = driver_data.get("commands", {})
+    if not isinstance(commands, dict):
+        return {}
+    command = commands.get(command_name, {})
+    if not isinstance(command, dict):
+        return {}
+    behavior = command.get("behavior", {})
+    return behavior if isinstance(behavior, dict) else {}
+
+
+def _observed_command_behavior(evidence: dict, command_name: str) -> dict:
+    command_behavior = evidence.get("command_behavior", {})
+    if not isinstance(command_behavior, dict):
+        return {}
+    observed = command_behavior.get(command_name, {})
+    return observed if isinstance(observed, dict) else {}
+
+
+def _behavior_verified(
+    driver_data: dict,
+    evidence: dict,
+    command_name: str,
+    behavior_name: str,
+) -> bool:
+    declared = _command_behavior(driver_data, command_name)
+    observed = _observed_command_behavior(evidence, command_name)
+    return bool(
+        declared.get("default_invocation")
+        and declared.get(behavior_name)
+        and observed.get("passed")
+        and observed.get("default_invocation")
+        and observed.get(behavior_name)
+    )
+
+
+def _access_assessments(contract: dict) -> list[dict]:
+    discovery = contract.get("access_discovery", {})
+    if not isinstance(discovery, dict):
+        return []
+    return [
+        assessment
+        for field in (
+            "official_api",
+            "sdk_or_cli",
+            "delegated_provider",
+            "browser_flow",
+            "credential_flow",
+        )
+        if isinstance((assessment := discovery.get(field)), dict)
+    ]
+
+
+def _has_operational_access_evidence(contract: dict) -> bool:
+    operational_kinds = {
+        "provider_account",
+        "api_probe",
+        "sdk_probe",
+        "cli_probe",
+        "browser_probe",
+        "live_system",
+    }
+    for assessment in _access_assessments(contract):
+        evidence = assessment.get("evidence", [])
+        evidence_kinds = {
+            item.get("kind")
+            for item in evidence
+            if isinstance(item, dict)
+        }
+        if (
+            assessment.get("status") == "available"
+            and assessment.get("operationally_obtainable")
+            and "official_documentation" in evidence_kinds
+            and evidence_kinds & operational_kinds
+        ):
+            return True
+    return False
+
+
 def _adapter_has_external_read(adapter_data: dict) -> bool:
     for operation in (adapter_data.get("provides", {}) or {}).values():
         if not isinstance(operation, dict):
@@ -585,6 +664,7 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
         "constraints",
         "source_system_request",
         "access_discovery",
+        "provider_provisioning",
         "fallback_mode",
         "driver",
     )
@@ -612,7 +692,54 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
             "notes": "Contract matches the snapshot captured at run creation",
         })
 
-    # Check 0d: Ordinary work may not alter the framework that judges it.
+    # Check 0d: Access feasibility matches the claimed lifecycle state.
+    access_feasibility_passed = True
+    access_feasibility_notes = "Contract does not require build-time access discovery"
+    if contract_type in ("build_capability", "connect_capability") and _source_system_requested(contract):
+        operational_access = _has_operational_access_evidence(normalized_contract)
+        provisioning_data = normalized_contract.get("provider_provisioning", {})
+        provisioning_ready_for_access = bool(
+            isinstance(provisioning_data, dict)
+            and provisioning_data.get("status") in ("not_required", "ready")
+            and provisioning_data.get("user_work_type") in ("none", "basic_consent")
+        )
+        if target_status in (
+            "capability_ready_not_connected",
+            "capability_connected",
+        ):
+            access_feasibility_passed = (
+                operational_access and provisioning_ready_for_access
+            )
+            access_feasibility_notes = (
+                "Authoritative and operational access evidence is present; "
+                "provider provisioning is ready"
+                if access_feasibility_passed
+                else (
+                    "Claimed ready/connected status lacks operational access "
+                    "evidence or completed provider provisioning"
+                )
+            )
+        elif target_status == "capability_built_access_blocked":
+            access_feasibility_passed = not (
+                operational_access and provisioning_ready_for_access
+            )
+            access_feasibility_notes = (
+                "Access or provider-provisioning blockers are recorded truthfully"
+                if access_feasibility_passed
+                else "Access-blocked status has no unresolved access blocker"
+            )
+
+    review["checks"].append({
+        "name": "access-feasibility",
+        "passed": access_feasibility_passed,
+        "notes": access_feasibility_notes,
+    })
+    if not access_feasibility_passed:
+        review["reasons"].append(
+            "Access feasibility does not support the claimed completion status"
+        )
+
+    # Check 0e: Ordinary work may not alter the framework that judges it.
     changed_paths = _changed_paths(
         project_root,
         run_data.get("framework_baseline_revision", ""),
@@ -801,19 +928,43 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
     # Check 3: User technical work - does user have to do technical tasks?
     user_work = run_data.get("requires_user_work", False)
     user_work_desc = run_data.get("user_work_description", "")
+    provisioning = (
+        normalized_contract.get("provider_provisioning", {})
+        if contract_exists
+        else {}
+    )
+    provisioning_user_work = (
+        provisioning.get("user_work_type", "")
+        if isinstance(provisioning, dict)
+        else ""
+    )
+    access_blocked_build = (
+        target_status == "capability_built_access_blocked"
+    )
 
-    if user_work:
+    if user_work or (
+        provisioning_user_work in ("technical", "commercial_approval")
+        and not access_blocked_build
+    ):
+        description = user_work_desc or (
+            f"provider provisioning requires {provisioning_user_work}"
+        )
         review["checks"].append({
             "name": "user-technical-work",
             "passed": False,
-            "notes": f"User must perform: {user_work_desc}",
+            "notes": f"User must perform: {description}",
         })
-        review["reasons"].append(f"Requires user technical work: {user_work_desc}")
+        review["reasons"].append(f"Requires user technical work: {description}")
     else:
         review["checks"].append({
             "name": "user-technical-work",
             "passed": True,
-            "notes": "No user technical work required",
+            "notes": (
+                "Provider-side user work is recorded as an access blocker"
+                if access_blocked_build
+                and provisioning_user_work in ("technical", "commercial_approval")
+                else "No user technical work required"
+            ),
         })
 
     # Check 4: Capability lifecycle requirements.
@@ -828,6 +979,16 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
     connection = run_data.get("connection", {})
     connection_status = connection.get("status", "")
     credential_status = connection.get("credential_status", "")
+    verification = run_data.get("verification", {})
+    evidence = verification.get("evidence", {})
+    if not isinstance(evidence, dict):
+        evidence = {}
+    has_operational_access = _has_operational_access_evidence(normalized_contract)
+    provisioning_ready = bool(
+        isinstance(provisioning, dict)
+        and provisioning.get("status") in ("not_required", "ready")
+        and provisioning_user_work in ("none", "basic_consent")
+    )
 
     capability_passed = True
     capability_notes = "Contract type has no capability-build requirements"
@@ -841,17 +1002,74 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
             failures.append(
                 "driver must expose setup-auth, authorize, or connect command"
             )
-        if required_credentials and target_status == "capability_built":
+        if _source_system_requested(contract) and target_status == "capability_built":
             failures.append(
-                "credential-dependent capability must use capability_ready_not_connected "
-                "until connected"
+                "source-system capability must use capability_ready_not_connected "
+                "or capability_built_access_blocked"
             )
         if target_status == "capability_ready_not_connected":
+            if not has_operational_access:
+                failures.append(
+                    "ready-not-connected requires authoritative and operational "
+                    "access evidence"
+                )
+            if not provisioning_ready:
+                failures.append(
+                    "ready-not-connected requires completed provider provisioning "
+                    "without technical user work"
+                )
             if connection_status != "not_connected":
                 failures.append("connection.status must be not_connected")
             if credential_status not in _MISSING_CREDENTIAL_STATUSES:
                 failures.append(
                     "connection.credential_status must record missing or blocked credentials"
+                )
+        if target_status == "capability_built_access_blocked":
+            if has_operational_access and provisioning_ready:
+                failures.append(
+                    "access-blocked status requires an unresolved access or "
+                    "provider-provisioning blocker"
+                )
+            if connection_status != "not_connected":
+                failures.append("access-blocked capability must remain not_connected")
+        if required_credentials:
+            authorization_mode = provisioning.get("authorization_mode", "none")
+            required_behaviors = []
+            if authorization_mode in ("secret_collection", "secret_and_browser"):
+                required_behaviors.append(
+                    ("setup-auth", "launches_secure_collection")
+                )
+            if authorization_mode in ("browser_oauth", "secret_and_browser"):
+                required_behaviors.append(("authorize", "opens_browser"))
+            required_behaviors.append(("connect", "validates_connection"))
+            for command_name, behavior_name in required_behaviors:
+                if not _behavior_verified(
+                    driver_data,
+                    evidence,
+                    command_name,
+                    behavior_name,
+                ):
+                    failures.append(
+                        f"{command_name} must behaviorally verify default "
+                        f"{behavior_name.replace('_', ' ')}"
+                    )
+            rollback_behaviors = []
+            if provisioning.get("stores_local_credentials"):
+                rollback_behaviors.append("removes_local_credentials")
+            if provisioning.get("creates_external_grant"):
+                rollback_behaviors.append("revokes_external_access")
+            if rollback_behaviors and not any(
+                _behavior_verified(
+                    driver_data,
+                    evidence,
+                    "rollback",
+                    behavior_name,
+                )
+                for behavior_name in rollback_behaviors
+            ):
+                failures.append(
+                    "rollback must behaviorally verify credential removal or "
+                    "external access revocation"
                 )
         capability_passed = not failures
         capability_notes = (
@@ -882,7 +1100,7 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
     })
     if not capability_passed:
         review["reasons"].append(
-            "Capability build/connect contract did not satisfy its reviewed lifecycle"
+            "Capability lifecycle failed: " + capability_notes
         )
 
     # Check 5: The user-facing claim may not overstate the terminal state.
@@ -908,7 +1126,6 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
         )
 
     # Check 6: Verification authenticity - was the required real system used?
-    verification = run_data.get("verification", {})
     verification_status = verification.get("status", "not_verified")
     raw_request = contract.get("raw_request", "") if contract_exists else ""
     source_system_request = (
@@ -930,7 +1147,6 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
     )
 
     if verification_status == "verified":
-        evidence = verification.get("evidence", {})
         if requires_live_source_evidence and not has_external_read:
             review["checks"].append({
                 "name": "verification-authenticity",

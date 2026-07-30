@@ -134,7 +134,7 @@ Every contract declares one type and a compatible terminal status:
 
 | Contract type | Valid terminal status |
 |---------------|-----------------------|
-| `build_capability` | `capability_built` or `capability_ready_not_connected` |
+| `build_capability` | `capability_built`, `capability_built_access_blocked`, or `capability_ready_not_connected` |
 | `connect_capability` | `capability_connected` |
 | `execute_workflow` | `outcome_delivered` |
 | `framework_change` | `capability_built` |
@@ -144,6 +144,28 @@ source integration it must provide a real access path, reusable adapter and
 driver, and a `setup-auth`, `authorize`, or `connect` command. Missing
 credentials must be recorded and the status must be
 `capability_ready_not_connected`.
+
+`capability_ready_not_connected` means provider access is operationally
+obtainable here, provider/developer provisioning is complete, and only end-user
+authorization remains. Documentation-only, conditional, commercially gated, or
+operator-blocked access must use `capability_built_access_blocked`.
+
+Access claims require structured evidence. `available` requires official
+documentation plus an operational provider-account, API/SDK/CLI, browser, or
+live-system probe. Provider provisioning must be modeled separately from
+end-user authorization.
+
+Credential-dependent drivers must behaviorally verify the default commands
+required by their declared authorization mode:
+
+- open secure credential collection without a hidden flag;
+- launch browser authorization;
+- validate the connection;
+- remove local credentials or revoke external access during rollback.
+
+Use `secret_collection`, `browser_oauth`, or `secret_and_browser` to select the
+applicable setup and authorization behaviors. Token-only integrations do not
+need browser OAuth; OAuth-only integrations do not need secret collection.
 
 `connect_capability` and `execute_workflow` require live source-system evidence.
 Never report `outcome_delivered` for a capability that was only built or tested.
@@ -267,6 +289,10 @@ See `docs/terminology.md` for definitions. See `docs/safety-and-approvals.md` fo
 14. Adding ad hoc gate exemptions such as `capability_build`
 15. Modifying completion, gates, schemas, review rules, or agent protocol during ordinary work
 16. Claiming `outcome_delivered` when a capability is only built or not connected
+17. Marking conditional or documentation-only access as `available`
+18. Treating provider/developer provisioning as end-user authorization
+19. Declaring command names without evidence that their default behavior works
+20. Claiming rollback support when rollback only prints instructions
 
 ---
 

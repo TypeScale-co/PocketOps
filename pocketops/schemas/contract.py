@@ -57,19 +57,6 @@ _ACCESS_DISCOVERY_FIELDS = (
     "credential_flow",
 )
 
-_NON_VIABLE_ACCESS_STATUSES = (
-    "blocked",
-    "unavailable",
-    "not available",
-    "not checked",
-    "unchecked",
-    "checked",
-    "attempted",
-    "none",
-    "n/a",
-    "unknown",
-)
-
 _FRAMEWORK_CHANGE_TERMS = (
     "pocketops",
     "framework",
@@ -98,6 +85,7 @@ class CompletionStatus(str, Enum):
     """Truthful terminal states a run may report."""
 
     CAPABILITY_BUILT = "capability_built"
+    CAPABILITY_BUILT_ACCESS_BLOCKED = "capability_built_access_blocked"
     CAPABILITY_READY_NOT_CONNECTED = "capability_ready_not_connected"
     CAPABILITY_CONNECTED = "capability_connected"
     OUTCOME_DELIVERED = "outcome_delivered"
@@ -151,31 +139,229 @@ class Constraint(BaseModel):
     description: str
 
 
-class AccessDiscovery(BaseModel):
-    """
-    Records source-system access paths checked before choosing a fallback.
+class AccessPathStatus(str, Enum):
+    """Operational status of one possible source-system access route."""
 
-    Values are free-form short statuses such as "available", "unavailable",
-    "blocked", or "needs-credentials" because every system has different
-    discovery surfaces.
-    """
-    official_api: Optional[str] = None
-    sdk_or_cli: Optional[str] = None
-    delegated_provider: Optional[str] = None
-    browser_flow: Optional[str] = None
-    credential_flow: Optional[str] = None
+    NOT_CHECKED = "not_checked"
+    UNAVAILABLE = "unavailable"
+    CONDITIONALLY_AVAILABLE = "conditionally_available"
+    AVAILABLE = "available"
+    OPERATOR_BLOCKED = "operator_blocked"
+
+
+class EvidenceKind(str, Enum):
+    """Kinds of evidence accepted for access feasibility decisions."""
+
+    OFFICIAL_DOCUMENTATION = "official_documentation"
+    PROVIDER_ACCOUNT = "provider_account"
+    API_PROBE = "api_probe"
+    SDK_PROBE = "sdk_probe"
+    CLI_PROBE = "cli_probe"
+    BROWSER_PROBE = "browser_probe"
+    LIVE_SYSTEM = "live_system"
+
+
+class AccessEvidence(BaseModel):
+    """Reviewable evidence supporting an access-path assessment."""
+
+    kind: EvidenceKind
+    reference: str
+    finding: str
+    verified_at: Optional[str] = None
+
+
+class AccessPathAssessment(BaseModel):
+    """Structured assessment for one API, provider, browser, or credential path."""
+
+    status: AccessPathStatus = AccessPathStatus.NOT_CHECKED
+    operationally_obtainable: bool = False
+    evidence: list[AccessEvidence] = []
+    blockers: list[str] = []
+
+    @model_validator(mode="after")
+    def validate_evidence(self):
+        if self.status != AccessPathStatus.NOT_CHECKED and not self.evidence:
+            raise ValueError(
+                f"Access status {self.status.value} requires reviewable evidence."
+            )
+        if self.status == AccessPathStatus.AVAILABLE:
+            if not self.operationally_obtainable:
+                raise ValueError(
+                    "available access must set operationally_obtainable: true."
+                )
+        elif self.operationally_obtainable:
+            raise ValueError(
+                "Only available access may set operationally_obtainable: true."
+            )
+        if self.status in (
+            AccessPathStatus.AVAILABLE,
+            AccessPathStatus.CONDITIONALLY_AVAILABLE,
+            AccessPathStatus.OPERATOR_BLOCKED,
+        ) and not any(
+            item.kind == EvidenceKind.OFFICIAL_DOCUMENTATION
+            for item in self.evidence
+        ):
+            raise ValueError(
+                f"{self.status.value} access requires "
+                "official_documentation evidence."
+            )
+        if self.status in (
+            AccessPathStatus.CONDITIONALLY_AVAILABLE,
+            AccessPathStatus.OPERATOR_BLOCKED,
+        ) and not self.blockers:
+            raise ValueError(
+                f"Access status {self.status.value} requires explicit blockers."
+            )
+        return self
+
+    def has_operational_proof(self) -> bool:
+        proof_kinds = {
+            EvidenceKind.PROVIDER_ACCOUNT,
+            EvidenceKind.API_PROBE,
+            EvidenceKind.SDK_PROBE,
+            EvidenceKind.CLI_PROBE,
+            EvidenceKind.BROWSER_PROBE,
+            EvidenceKind.LIVE_SYSTEM,
+        }
+        return (
+            self.status == AccessPathStatus.AVAILABLE
+            and self.operationally_obtainable
+            and any(item.kind in proof_kinds for item in self.evidence)
+        )
+
+
+class ProvisioningStatus(str, Enum):
+    """State of provider-side setup required before end-user authorization."""
+
+    NOT_REQUIRED = "not_required"
+    READY = "ready"
+    AGENT_ACTION_REQUIRED = "agent_action_required"
+    USER_ACTION_REQUIRED = "user_action_required"
+    OPERATOR_BLOCKED = "operator_blocked"
+
+
+class UserWorkType(str, Enum):
+    """User effort required by provider provisioning."""
+
+    NONE = "none"
+    BASIC_CONSENT = "basic_consent"
+    TECHNICAL = "technical"
+    COMMERCIAL_APPROVAL = "commercial_approval"
+
+
+class AuthorizationMode(str, Enum):
+    """How end-user or provider credentials are authorized after provisioning."""
+
+    NONE = "none"
+    SECRET_COLLECTION = "secret_collection"
+    BROWSER_OAUTH = "browser_oauth"
+    SECRET_AND_BROWSER = "secret_and_browser"
+
+
+class ProviderProvisioning(BaseModel):
+    """Separates provider/developer setup from end-user account authorization."""
+
+    provider: Optional[str] = None
+    status: ProvisioningStatus
+    user_work_type: UserWorkType = UserWorkType.NONE
+    agent_can_complete: bool = True
+    authorization_mode: AuthorizationMode = AuthorizationMode.NONE
+    stores_local_credentials: bool = False
+    creates_external_grant: bool = False
+    required_actions: list[str] = []
+    evidence: list[AccessEvidence] = []
+
+    @model_validator(mode="after")
+    def validate_provisioning_state(self):
+        if self.status != ProvisioningStatus.NOT_REQUIRED and not self.evidence:
+            raise ValueError(
+                "Provider provisioning status requires reviewable evidence."
+            )
+        if self.status == ProvisioningStatus.READY and self.user_work_type in (
+            UserWorkType.TECHNICAL,
+            UserWorkType.COMMERCIAL_APPROVAL,
+        ):
+            raise ValueError(
+                "Provider provisioning cannot be ready while technical user work "
+                "or commercial approval is still required."
+            )
+        if (
+            self.status == ProvisioningStatus.OPERATOR_BLOCKED
+            and self.agent_can_complete
+        ):
+            raise ValueError(
+                "operator_blocked provider provisioning must set "
+                "agent_can_complete: false."
+            )
+        if (
+            self.authorization_mode != AuthorizationMode.NONE
+            and not (
+                self.stores_local_credentials or self.creates_external_grant
+            )
+        ):
+            raise ValueError(
+                "Credential authorization must declare local credential storage "
+                "or an external grant for rollback review."
+            )
+        if self.status in (
+            ProvisioningStatus.AGENT_ACTION_REQUIRED,
+            ProvisioningStatus.USER_ACTION_REQUIRED,
+            ProvisioningStatus.OPERATOR_BLOCKED,
+        ) and not self.required_actions:
+            raise ValueError(
+                f"Provisioning status {self.status.value} requires required_actions."
+            )
+        return self
+
+    @property
+    def operationally_ready(self) -> bool:
+        return (
+            self.status in (ProvisioningStatus.NOT_REQUIRED, ProvisioningStatus.READY)
+            and self.user_work_type
+            in (UserWorkType.NONE, UserWorkType.BASIC_CONSENT)
+        )
+
+
+class AccessDiscovery(BaseModel):
+    """Evidence-backed source-system access paths evaluated before build."""
+
+    official_api: Optional[AccessPathAssessment] = None
+    sdk_or_cli: Optional[AccessPathAssessment] = None
+    delegated_provider: Optional[AccessPathAssessment] = None
+    browser_flow: Optional[AccessPathAssessment] = None
+    credential_flow: Optional[AccessPathAssessment] = None
     notes: Optional[str] = None
 
     def has_attempted_access_path(self) -> bool:
-        return any(getattr(self, field) for field in _ACCESS_DISCOVERY_FIELDS)
+        return any(
+            assessment
+            and assessment.status != AccessPathStatus.NOT_CHECKED
+            for assessment in (
+                getattr(self, field) for field in _ACCESS_DISCOVERY_FIELDS
+            )
+        )
 
-    def has_viable_access_path(self) -> bool:
-        """Return true when discovery found or planned a usable access route."""
-        for field in _ACCESS_DISCOVERY_FIELDS:
-            status = _normalize(getattr(self, field))
-            if status and not _contains_any(status, _NON_VIABLE_ACCESS_STATUSES):
-                return True
-        return False
+    def has_discovered_access_path(self) -> bool:
+        return any(
+            assessment
+            and assessment.status
+            in (
+                AccessPathStatus.AVAILABLE,
+                AccessPathStatus.CONDITIONALLY_AVAILABLE,
+                AccessPathStatus.OPERATOR_BLOCKED,
+            )
+            for assessment in (
+                getattr(self, field) for field in _ACCESS_DISCOVERY_FIELDS
+            )
+        )
+
+    def has_operational_access_path(self) -> bool:
+        return any(
+            assessment and assessment.has_operational_proof()
+            for assessment in (
+                getattr(self, field) for field in _ACCESS_DISCOVERY_FIELDS
+            )
+        )
 
 
 class SourceSystemRequest(BaseModel):
@@ -217,6 +403,7 @@ class OutcomeContract(BaseModel):
     constraints: list[Constraint] = []
     source_system_request: SourceSystemRequest = Field(default_factory=SourceSystemRequest)
     access_discovery: Optional[AccessDiscovery] = None
+    provider_provisioning: Optional[ProviderProvisioning] = None
     fallback_mode: Optional[FallbackMode] = None
     user_technical_work: bool = False  # True if user must do technical work (FAIL)
     user_technical_work_acknowledged: bool = False  # Explicit acknowledgment to bypass
@@ -280,6 +467,7 @@ class OutcomeContract(BaseModel):
         allowed_statuses = {
             ContractType.BUILD_CAPABILITY: {
                 CompletionStatus.CAPABILITY_BUILT,
+                CompletionStatus.CAPABILITY_BUILT_ACCESS_BLOCKED,
                 CompletionStatus.CAPABILITY_READY_NOT_CONNECTED,
             },
             ContractType.CONNECT_CAPABILITY: {
@@ -319,10 +507,48 @@ class OutcomeContract(BaseModel):
                     "A source-system build_capability contract requires "
                     "access_discovery."
                 )
-            if not self.access_discovery.has_viable_access_path():
+            if not self.access_discovery.has_discovered_access_path():
                 raise ValueError(
-                    "A source-system build_capability contract requires a viable "
-                    "API, SDK/CLI, delegated-provider, browser, or credential flow."
+                    "A source-system build_capability contract requires an "
+                    "evidence-backed API, SDK/CLI, delegated-provider, browser, "
+                    "or credential path."
+                )
+            if not self.provider_provisioning:
+                raise ValueError(
+                    "A source-system build_capability contract requires "
+                    "provider_provisioning separate from end-user authorization."
+                )
+            if self.target_completion_status == CompletionStatus.CAPABILITY_BUILT:
+                raise ValueError(
+                    "A source-system build must target "
+                    "capability_ready_not_connected when access is operationally "
+                    "obtainable, or capability_built_access_blocked when it is not."
+                )
+            if (
+                self.target_completion_status
+                == CompletionStatus.CAPABILITY_READY_NOT_CONNECTED
+            ):
+                if not self.access_discovery.has_operational_access_path():
+                    raise ValueError(
+                        "capability_ready_not_connected requires an available, "
+                        "operationally proven access path. Documentation-only or "
+                        "conditional access must use capability_built_access_blocked."
+                    )
+                if not self.provider_provisioning.operationally_ready:
+                    raise ValueError(
+                        "capability_ready_not_connected requires provider "
+                        "provisioning to be ready or not required without technical "
+                        "user work or commercial approval."
+                    )
+            if (
+                self.target_completion_status
+                == CompletionStatus.CAPABILITY_BUILT_ACCESS_BLOCKED
+                and self.access_discovery.has_operational_access_path()
+                and self.provider_provisioning.operationally_ready
+            ):
+                raise ValueError(
+                    "capability_built_access_blocked requires a documented access "
+                    "or provider-provisioning blocker."
                 )
 
         if (
@@ -333,6 +559,22 @@ class OutcomeContract(BaseModel):
                 "connect_capability requires source_system_request.requested: true "
                 "and the external system being connected."
             )
+        if self.contract_type == ContractType.CONNECT_CAPABILITY:
+            if (
+                not self.access_discovery
+                or not self.access_discovery.has_operational_access_path()
+            ):
+                raise ValueError(
+                    "connect_capability requires an operationally proven access path."
+                )
+            if (
+                not self.provider_provisioning
+                or not self.provider_provisioning.operationally_ready
+            ):
+                raise ValueError(
+                    "connect_capability requires provider provisioning to be ready "
+                    "before end-user authorization."
+                )
 
         if (
             self.contract_type
@@ -433,6 +675,7 @@ class OutcomeContract(BaseModel):
         constraints: list[dict] | None = None,
         source_system_request: dict | None = None,
         access_discovery: dict | None = None,
+        provider_provisioning: dict | None = None,
         fallback_mode: dict | None = None,
         driver: str | None = None,
     ) -> "OutcomeContract":
@@ -458,6 +701,7 @@ class OutcomeContract(BaseModel):
             constraints=constraint_list,
             source_system_request=SourceSystemRequest(**source_system_request) if source_system_request else SourceSystemRequest(),
             access_discovery=AccessDiscovery(**access_discovery) if access_discovery else None,
+            provider_provisioning=ProviderProvisioning(**provider_provisioning) if provider_provisioning else None,
             fallback_mode=FallbackMode(**fallback_mode) if fallback_mode else None,
             driver=driver,
         )

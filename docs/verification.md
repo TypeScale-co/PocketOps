@@ -68,6 +68,7 @@ what lifecycle outcome was actually reached:
 | Completion status | Required evidence |
 |-------------------|-------------------|
 | `capability_built` | Reusable component build and tests; no external connection required |
+| `capability_built_access_blocked` | Components and truthful provider/access blockers |
 | `capability_ready_not_connected` | Real source path and auth/connect command; missing credentials recorded |
 | `capability_connected` | Valid credentials and live external read |
 | `outcome_delivered` | Live execution and verification of the requested outcome |
@@ -75,6 +76,17 @@ what lifecycle outcome was actually reached:
 Build evidence cannot support `capability_connected` or `outcome_delivered`.
 The run's `user_facing_status` must match its `completion_status` so the final
 response cannot imply a stronger result than review approved.
+
+`capability_ready_not_connected` also requires official access documentation,
+operational provider/account or probe evidence, and completed provider
+provisioning. Documentation-only or conditional access is
+`capability_built_access_blocked`.
+
+For credential-dependent builds, verify default command behavior selected by
+the declared authorization mode. Command names alone do not prove secure
+collection, browser launch, connection validation, or rollback. Supported
+rollback must remove local credentials or revoke external access rather than
+print instructions.
 
 ---
 

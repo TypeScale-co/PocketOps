@@ -9,9 +9,14 @@ from pocketops.schemas.transport import TransportManifest
 from pocketops.schemas.adapter import AdapterManifest
 from pocketops.schemas.driver import DriverManifest
 from pocketops.schemas.contract import (
+    AccessPathStatus,
+    AuthorizationMode,
     CompletionStatus,
     ContractType,
+    EvidenceKind,
     OutcomeContract,
+    ProvisioningStatus,
+    UserWorkType,
 )
 
 __all__ = [
@@ -23,5 +28,10 @@ __all__ = [
     "DriverManifest",
     "ContractType",
     "CompletionStatus",
+    "AccessPathStatus",
+    "AuthorizationMode",
+    "EvidenceKind",
+    "ProvisioningStatus",
+    "UserWorkType",
     "OutcomeContract",
 ]

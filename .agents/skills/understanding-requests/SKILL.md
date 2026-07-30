@@ -28,7 +28,7 @@ id: <timestamp>-<slug>
 created_at: <ISO timestamp>
 raw_request: "<user's exact words>"
 contract_type: build_capability | connect_capability | execute_workflow | framework_change
-target_completion_status: capability_built | capability_ready_not_connected | capability_connected | outcome_delivered
+target_completion_status: capability_built | capability_built_access_blocked | capability_ready_not_connected | capability_connected | outcome_delivered
 outcome: "<what should be true after completion>"
 
 verification:
@@ -49,11 +49,25 @@ source_system_request:
   expected_agent_access: true
 
 access_discovery:
-  official_api: checked | available | unavailable | blocked
-  sdk_or_cli: checked | available | unavailable | blocked
-  delegated_provider: checked | available | unavailable | blocked
-  browser_flow: checked | feasible | blocked
-  credential_flow: planned | blocked
+  delegated_provider:
+    status: not_checked | unavailable | conditionally_available | available | operator_blocked
+    operationally_obtainable: false
+    evidence:
+      - kind: official_documentation | provider_account | api_probe | sdk_probe | cli_probe | browser_probe | live_system
+        reference: "<reviewable URL, account reference, or probe artifact>"
+        finding: "<what this proves>"
+    blockers: []
+
+provider_provisioning:
+  provider: <provider name>
+  status: not_required | ready | agent_action_required | user_action_required | operator_blocked
+  user_work_type: none | basic_consent | technical | commercial_approval
+  agent_can_complete: true
+  authorization_mode: none | secret_collection | browser_oauth | secret_and_browser
+  stores_local_credentials: true | false
+  creates_external_grant: true | false
+  required_actions: []
+  evidence: []
 
 fallback_mode:
   type: manual_file | user_copy_paste | mock_data | sandbox_only | other
@@ -86,7 +100,7 @@ the agent can reach:
 
 | User outcome | Contract type | Terminal status |
 |--------------|---------------|-----------------|
-| Create reusable automation | `build_capability` | `capability_built` or `capability_ready_not_connected` |
+| Create reusable automation | `build_capability` | `capability_built`, `capability_built_access_blocked`, or `capability_ready_not_connected` |
 | Authorize/connect an existing capability | `connect_capability` | `capability_connected` |
 | Run automation and deliver its result | `execute_workflow` | `outcome_delivered` |
 | Change PocketOps enforcement or protocol | `framework_change` | `capability_built` |
@@ -117,11 +131,14 @@ fallback_mode:
   accepted_after_access_discovery: true
   reason: <why fallback is necessary>
 access_discovery:
-  official_api: checked | available | unavailable | blocked
-  sdk_or_cli: checked | available | unavailable | blocked
-  delegated_provider: checked | available | unavailable | blocked
-  browser_flow: checked | feasible | blocked
-  credential_flow: planned | blocked
+  delegated_provider:
+    status: conditionally_available
+    operationally_obtainable: false
+    evidence:
+      - kind: official_documentation
+        reference: <official source>
+        finding: <documented requirement>
+    blockers: [<unmet provider requirement>]
 ```
 
 The contract must include `raw_request` so review can compare delivery against
@@ -135,9 +152,16 @@ For credential-dependent source capabilities:
 
 - choose `build_capability` while constructing the integration;
 - require a real access path and credential/connect flow;
-- target `capability_ready_not_connected` until credentials are connected;
+- target `capability_ready_not_connected` only when provider access is
+  operationally proven and provisioning is ready;
+- target `capability_built_access_blocked` when access is conditional,
+  commercially gated, documentation-only, or operator-blocked;
 - use `connect_capability` to perform and verify authorization;
 - use `execute_workflow` when the requested report or outcome is actually delivered.
+
+Do not label access `available` from documentation alone. `available` requires
+official documentation and an operational provider-account, API/SDK/CLI,
+browser, or live-system probe.
 
 ## Clarification Rules
 
