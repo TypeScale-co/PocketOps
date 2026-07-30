@@ -47,6 +47,7 @@ class OutcomeContract(BaseModel):
     verification: Verification
     constraints: list[Constraint] = []
     user_technical_work: bool = False  # True if user must do technical work (FAIL)
+    user_technical_work_acknowledged: bool = False  # Explicit acknowledgment to bypass
     driver: Optional[str] = None  # Which driver will be used
     status: str = "draft"  # draft, approved, executing, verified, complete
 
@@ -63,12 +64,25 @@ class OutcomeContract(BaseModel):
     @model_validator(mode="after")
     def validate_no_user_technical_work(self):
         """
-        Flag contracts that require user to do technical work.
+        Reject contracts that require user to do technical work.
 
-        This doesn't fail validation but surfaces it for review.
-        The reviewing-contracts skill should reject these.
+        If the contract explicitly declares user_technical_work: true,
+        validation fails unless user_technical_work_acknowledged: true
+        is also set (indicating the user accepted this limitation).
+
+        Technical work includes:
+        - Manually exporting files from websites
+        - Writing SQL queries or code
+        - Editing configuration files
+        - Setting up cron jobs or automation
         """
-        # We don't fail here - let the review skill catch this
+        if self.user_technical_work and not self.user_technical_work_acknowledged:
+            raise ValueError(
+                "Contract requires user to do technical work. "
+                "This violates the automation principle - the agent should handle all technical tasks. "
+                "Either redesign to eliminate user technical work, or set "
+                "user_technical_work_acknowledged: true if this is intentional."
+            )
         return self
 
     @classmethod

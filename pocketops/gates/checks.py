@@ -30,33 +30,77 @@ def _find_project_root() -> Path:
     return cwd
 
 
+def _validate_contract_content(contract_path: Path) -> tuple[bool, str, dict]:
+    """
+    Validate contract file content against OutcomeContract schema.
+
+    Returns:
+        (valid, message, contract_data or error_details)
+    """
+    import yaml
+    from pydantic import ValidationError
+
+    try:
+        with open(contract_path) as f:
+            data = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        return False, f"Invalid YAML: {e}", {}
+
+    if not data:
+        return False, "Contract file is empty", {}
+
+    # Import here to avoid circular dependency
+    from pocketops.schemas import OutcomeContract
+
+    try:
+        contract = OutcomeContract(**data)
+        return True, "Contract is valid", {
+            "id": contract.id,
+            "outcome": contract.outcome,
+            "verification_checks": len(contract.verification.checks),
+            "driver": contract.driver,
+        }
+    except ValidationError as e:
+        details = []
+        for error in e.errors():
+            loc = ".".join(str(l) for l in error["loc"])
+            details.append(f"{loc}: {error['msg']}")
+        return False, "Contract validation failed: " + "; ".join(details), {}
+
+
 @GateRegistry.register(
     name="contract-required",
     from_phase=Phase.PLAN,
     to_phase=Phase.BUILD,
-    description="Outcome contract must exist in plans/active/ before building",
+    description="Valid outcome contract must exist in plans/active/ before building",
 )
 def check_contract_exists(context: dict) -> GateResult:
     """
-    Verify an outcome contract exists before allowing BUILD phase.
+    Verify a VALID outcome contract exists before allowing BUILD phase.
+
+    This gate validates:
+    1. Contract file exists
+    2. Contract is valid YAML
+    3. Contract passes OutcomeContract schema validation
+    4. Contract has at least one verification check
 
     Context should contain:
-        - contract_id: ID of the contract to check
+        - contract_id: ID of the contract to check (optional)
         - project_root: Optional path to project root
     """
     contract_id = context.get("contract_id")
     project_root = Path(context.get("project_root", _find_project_root()))
     plans_dir = project_root / "plans" / "active"
 
-    if not contract_id:
-        # Check if any contract exists
-        if not plans_dir.exists():
-            return GateResult(
-                passed=False,
-                gate_name="contract-required",
-                message="No plans/active directory found",
-            )
+    if not plans_dir.exists():
+        return GateResult(
+            passed=False,
+            gate_name="contract-required",
+            message="No plans/active directory found",
+        )
 
+    if not contract_id:
+        # Check if any valid contract exists
         contracts = list(plans_dir.glob("*.yaml")) + list(plans_dir.glob("*.yml"))
         if not contracts:
             return GateResult(
@@ -66,11 +110,40 @@ def check_contract_exists(context: dict) -> GateResult:
                         "Create a contract defining what success looks like before building.",
             )
 
+        # Validate at least one contract is structurally valid
+        valid_contracts = []
+        invalid_contracts = []
+
+        for contract_path in contracts:
+            valid, message, details = _validate_contract_content(contract_path)
+            if valid:
+                valid_contracts.append({
+                    "path": str(contract_path),
+                    **details
+                })
+            else:
+                invalid_contracts.append({
+                    "path": str(contract_path),
+                    "error": message
+                })
+
+        if not valid_contracts:
+            return GateResult(
+                passed=False,
+                gate_name="contract-required",
+                message=f"Found {len(contracts)} contract file(s) but none are valid. "
+                        "Contracts must have outcome, id, and verification checks.",
+                details={"invalid_contracts": invalid_contracts},
+            )
+
         return GateResult(
             passed=True,
             gate_name="contract-required",
-            message=f"Found {len(contracts)} contract(s) in plans/active/",
-            details={"contracts": [str(c) for c in contracts]},
+            message=f"Found {len(valid_contracts)} valid contract(s)",
+            details={
+                "valid_contracts": valid_contracts,
+                "invalid_contracts": invalid_contracts if invalid_contracts else None,
+            },
         )
 
     # Check for specific contract
@@ -85,11 +158,22 @@ def check_contract_exists(context: dict) -> GateResult:
             message=f"Contract '{contract_id}' not found in plans/active/",
         )
 
+    # Validate the specific contract
+    valid, message, details = _validate_contract_content(contract_path)
+
+    if not valid:
+        return GateResult(
+            passed=False,
+            gate_name="contract-required",
+            message=f"Contract '{contract_id}' exists but is invalid: {message}",
+            details={"path": str(contract_path)},
+        )
+
     return GateResult(
         passed=True,
         gate_name="contract-required",
-        message=f"Contract '{contract_id}' found",
-        details={"path": str(contract_path)},
+        message=f"Contract '{contract_id}' is valid",
+        details={"path": str(contract_path), **details},
     )
 
 
@@ -251,6 +335,55 @@ def check_verification_passed(context: dict) -> GateResult:
     )
 
 
+def _is_high_risk_run(run_data: dict) -> bool:
+    """
+    Determine if a run is high-risk and requires mandatory review.
+
+    High-risk operations include:
+    - External writes (scope: external)
+    - Destructive operations (risk: destructive)
+    - Batch operations affecting multiple records
+    """
+    effects = run_data.get("effects", [])
+    for effect in effects:
+        risk = effect.get("risk", "").lower()
+        scope = effect.get("scope", "").lower()
+
+        if risk in ("destructive", "write", "high", "critical"):
+            return True
+        if scope in ("external", "batch", "destructive"):
+            return True
+
+    # Check driver info if available
+    driver_info = run_data.get("driver_info", {})
+    if driver_info.get("risk", "").lower() in ("high", "critical", "destructive"):
+        return True
+
+    return False
+
+
+def _validate_review_checks(review: dict) -> tuple[bool, list[str]]:
+    """
+    Validate that all review checks passed, not just the status field.
+
+    Returns:
+        (all_passed, list of failed check names)
+    """
+    checks = review.get("checks", [])
+    if not checks:
+        # No checks recorded - can't validate
+        return False, ["No review checks recorded"]
+
+    failed_checks = []
+    for check in checks:
+        check_name = check.get("name", "unknown")
+        passed = check.get("passed", False)
+        if not passed:
+            failed_checks.append(check_name)
+
+    return len(failed_checks) == 0, failed_checks
+
+
 @GateRegistry.register(
     name="review-required",
     from_phase=Phase.VERIFY,
@@ -261,23 +394,20 @@ def check_review_approved(context: dict) -> GateResult:
     """
     Verify contract review was approved before allowing COMPLETE phase.
 
-    This is an optional gate - if no review is required, it passes.
+    Review is MANDATORY for high-risk operations (external writes, destructive ops).
+    Review can be skipped for low-risk read-only operations.
+
+    This gate validates BOTH:
+    1. Review status is "approved"
+    2. All individual review checks passed (outcome-match, naming-honesty, etc.)
 
     Context should contain:
         - run_id: ID of the current run
-        - require_review: Whether review is mandatory (default: False)
+        - skip_review: Explicit opt-out (only works for low-risk runs)
         - project_root: Optional path to project root
     """
-    require_review = context.get("require_review", False)
-
-    if not require_review:
-        return GateResult(
-            passed=True,
-            gate_name="review-required",
-            message="Review not required for this run",
-        )
-
     run_id = context.get("run_id")
+    skip_review = context.get("skip_review", False)
     project_root = Path(context.get("project_root", _find_project_root()))
     runs_dir = project_root / "runs" / "current"
 
@@ -288,7 +418,7 @@ def check_review_approved(context: dict) -> GateResult:
             message="No run_id provided in context",
         )
 
-    # Look for review in run file
+    # Look for run file
     run_file = runs_dir / f"{run_id}.yaml"
     if not run_file.exists():
         run_file = runs_dir / f"{run_id}.yml"
@@ -311,16 +441,48 @@ def check_review_approved(context: dict) -> GateResult:
             message="Run file is empty",
         )
 
-    review = run_data.get("review", {})
-    status = review.get("status", "not_reviewed")
+    # Check if this is a high-risk run
+    is_high_risk = _is_high_risk_run(run_data)
 
-    if status == "approved":
+    # High-risk runs ALWAYS require review
+    if is_high_risk and skip_review:
+        return GateResult(
+            passed=False,
+            gate_name="review-required",
+            message="Cannot skip review for high-risk operations. "
+                    "Run reviewing-contracts skill before completion.",
+            details={"high_risk": True, "effects": run_data.get("effects", [])},
+        )
+
+    # Low-risk runs can opt out
+    if skip_review and not is_high_risk:
         return GateResult(
             passed=True,
             gate_name="review-required",
-            message="Contract review approved",
-            details={"review": review},
+            message="Review skipped (low-risk operation)",
+            details={"high_risk": False},
         )
+
+    # Check for review in run file
+    review = run_data.get("review", {})
+    status = review.get("status", "not_reviewed")
+
+    if status == "not_reviewed" or not review:
+        if is_high_risk:
+            return GateResult(
+                passed=False,
+                gate_name="review-required",
+                message="Contract review required for high-risk operation. "
+                        "Run reviewing-contracts skill before completion.",
+                details={"high_risk": True},
+            )
+        else:
+            return GateResult(
+                passed=False,
+                gate_name="review-required",
+                message="Contract review not completed. "
+                        "Run reviewing-contracts skill or set skip_review=True for low-risk ops.",
+            )
 
     if status == "rejected":
         reasons = review.get("reasons", [])
@@ -331,9 +493,29 @@ def check_review_approved(context: dict) -> GateResult:
             details={"review": review},
         )
 
+    if status == "approved":
+        # Validate that all checks actually passed
+        checks_valid, failed_checks = _validate_review_checks(review)
+
+        if not checks_valid:
+            return GateResult(
+                passed=False,
+                gate_name="review-required",
+                message=f"Review status is 'approved' but checks failed: {', '.join(failed_checks)}. "
+                        "Review must have all checks passing to be valid.",
+                details={"review": review, "failed_checks": failed_checks},
+            )
+
+        return GateResult(
+            passed=True,
+            gate_name="review-required",
+            message="Contract review approved with all checks passing",
+            details={"review": review},
+        )
+
     return GateResult(
         passed=False,
         gate_name="review-required",
-        message="Contract review required but not completed",
+        message=f"Unknown review status: {status}",
         details={"review": review},
     )

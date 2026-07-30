@@ -5,12 +5,38 @@ Uses AST analysis to detect import violations:
 - Drivers can only import from adapters.*
 - Adapters can only import from transports.*
 - Transports cannot import from adapters or drivers
+
+Also provides runtime import blocking via install_import_guard().
 """
 
 import ast
+import sys
+import inspect
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Union
+
+
+class LayerViolationError(ImportError):
+    """Raised when an import violates layer boundaries at runtime."""
+
+    def __init__(self, importer_layer: str, imported_module: str, importer_file: str):
+        self.importer_layer = importer_layer
+        self.imported_module = imported_module
+        self.importer_file = importer_file
+        super().__init__(
+            f"Layer violation: {importer_layer} cannot import from {imported_module}\n"
+            f"  Importing file: {importer_file}\n"
+            f"  Rule: {self._get_rule()}"
+        )
+
+    def _get_rule(self) -> str:
+        rules = {
+            "transports": "Transports can only import from transports.* (not adapters or drivers)",
+            "adapters": "Adapters can only import from transports.* or adapters.* (not drivers)",
+            "drivers": "Drivers can import from any layer",
+        }
+        return rules.get(self.importer_layer, "Unknown layer")
 
 
 @dataclass
@@ -175,3 +201,117 @@ def format_violations(violations: list[LayerViolation]) -> str:
         lines.append(f"    imported: {v.imported}")
 
     return "\n".join(lines)
+
+
+# =============================================================================
+# Runtime Import Guard
+# =============================================================================
+
+class LayerImportGuard:
+    """
+    Meta path finder that blocks imports violating layer boundaries.
+
+    Install with install_import_guard() to enforce layer rules at runtime.
+    This catches dynamic imports that AST analysis would miss.
+    """
+
+    _instance = None
+    _installed = False
+
+    def __init__(self):
+        self.enabled = True
+
+    def find_module(self, fullname: str, path=None):
+        """Called by Python import system. Returns self if we should block."""
+        if not self.enabled:
+            return None
+
+        # Only check PocketOps layer imports
+        if not _is_pocketops_import(fullname):
+            return None
+
+        # Determine who is importing
+        importer_file = self._get_importer_file()
+        if not importer_file:
+            return None
+
+        importer_layer = _detect_layer(Path(importer_file))
+        if not importer_layer:
+            return None
+
+        # Check if this import is forbidden
+        rules = ALLOWED_IMPORTS.get(importer_layer, {})
+        forbidden = rules.get("forbidden", [])
+
+        for forbidden_prefix in forbidden:
+            if fullname.startswith(forbidden_prefix):
+                # Block this import by raising in load_module
+                self._pending_violation = LayerViolationError(
+                    importer_layer=importer_layer,
+                    imported_module=fullname,
+                    importer_file=importer_file,
+                )
+                return self
+
+        return None
+
+    def load_module(self, fullname: str):
+        """Called if find_module returned self. Raises the violation."""
+        if hasattr(self, '_pending_violation'):
+            violation = self._pending_violation
+            del self._pending_violation
+            raise violation
+        return None
+
+    def _get_importer_file(self) -> str | None:
+        """Get the file that initiated the import."""
+        # Walk up the stack to find who called import
+        for frame_info in inspect.stack():
+            filename = frame_info.filename
+
+            # Skip internal Python files and pocketops validation
+            if 'importlib' in filename:
+                continue
+            if 'pocketops/validation' in filename:
+                continue
+            if filename.startswith('<'):
+                continue
+
+            # Check if this file is in a layer directory
+            if any(layer in filename for layer in ['transports', 'adapters', 'drivers']):
+                return filename
+
+        return None
+
+
+def install_import_guard() -> LayerImportGuard:
+    """
+    Install the runtime import guard.
+
+    Call this early in your application to enforce layer boundaries
+    at runtime, catching dynamic imports that AST analysis misses.
+
+    Returns:
+        The guard instance (can be used to temporarily disable with guard.enabled = False)
+    """
+    if LayerImportGuard._installed:
+        return LayerImportGuard._instance
+
+    guard = LayerImportGuard()
+    sys.meta_path.insert(0, guard)
+    LayerImportGuard._instance = guard
+    LayerImportGuard._installed = True
+
+    return guard
+
+
+def uninstall_import_guard() -> None:
+    """Remove the import guard (useful for testing)."""
+    if not LayerImportGuard._installed:
+        return
+
+    if LayerImportGuard._instance in sys.meta_path:
+        sys.meta_path.remove(LayerImportGuard._instance)
+
+    LayerImportGuard._instance = None
+    LayerImportGuard._installed = False

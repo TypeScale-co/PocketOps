@@ -2,6 +2,9 @@
 Manifest validation utilities.
 
 Validates manifests against Pydantic schemas and checks dependencies.
+
+IMPORTANT: Always use load_manifest() to load manifests. This ensures
+schema validation is enforced at load time, not just during verification.
 """
 
 from pathlib import Path
@@ -15,7 +18,108 @@ from pocketops.schemas import (
     TransportManifest,
     AdapterManifest,
     DriverManifest,
+    OutcomeContract,
 )
+
+
+class ManifestLoadError(Exception):
+    """Raised when a manifest fails to load or validate."""
+
+    def __init__(self, path: str, kind: str, message: str, details: list[str] = None):
+        self.path = path
+        self.kind = kind
+        self.message = message
+        self.details = details or []
+        super().__init__(self._format_message())
+
+    def _format_message(self) -> str:
+        msg = f"{self.path} ({self.kind}): {self.message}"
+        if self.details:
+            msg += "\n  " + "\n  ".join(self.details)
+        return msg
+
+
+def load_manifest(
+    path: Union[str, Path],
+) -> Union[TransportManifest, AdapterManifest, DriverManifest]:
+    """
+    Load and validate a manifest file.
+
+    This is the REQUIRED way to load manifests. It enforces schema
+    validation at load time, preventing invalid manifests from being used.
+
+    Raises:
+        ManifestLoadError: If the manifest is invalid or cannot be loaded.
+
+    Returns:
+        Validated manifest object (TransportManifest, AdapterManifest, or DriverManifest)
+    """
+    success, manifest, errors = validate_manifest(path)
+
+    if not success or manifest is None:
+        error = errors[0] if errors else ManifestError(str(path), "unknown", "Unknown error")
+        raise ManifestLoadError(
+            path=error.path,
+            kind=error.kind,
+            message=error.message,
+            details=error.details,
+        )
+
+    return manifest
+
+
+def load_contract(
+    path: Union[str, Path],
+) -> OutcomeContract:
+    """
+    Load and validate an outcome contract file.
+
+    Raises:
+        ManifestLoadError: If the contract is invalid or cannot be loaded.
+
+    Returns:
+        Validated OutcomeContract object
+    """
+    path = Path(path)
+
+    if not path.exists():
+        raise ManifestLoadError(
+            path=str(path),
+            kind="contract",
+            message="Contract file not found",
+        )
+
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        raise ManifestLoadError(
+            path=str(path),
+            kind="contract",
+            message=f"Invalid YAML: {e}",
+        )
+
+    if not data:
+        raise ManifestLoadError(
+            path=str(path),
+            kind="contract",
+            message="Empty contract file",
+        )
+
+    try:
+        return OutcomeContract(**data)
+    except ValidationError as e:
+        details = []
+        for error in e.errors():
+            loc = ".".join(str(l) for l in error["loc"])
+            details.append(f"{loc}: {error['msg']}")
+
+        raise ManifestLoadError(
+            path=str(path),
+            kind="contract",
+            message="Contract validation failed",
+            details=details,
+        )
 
 
 @dataclass
@@ -162,11 +266,12 @@ def validate_dependencies(
     project_root: Union[str, Path] = ".",
 ) -> tuple[bool, list[ManifestError]]:
     """
-    Validate that all declared dependencies exist.
+    Validate that all declared dependencies exist AND respect layer boundaries.
 
     Checks:
-    - Adapters depend on existing transports
-    - Drivers depend on existing adapters
+    - Adapters depend on existing transports (not adapters or drivers)
+    - Drivers depend on existing adapters (not transports or drivers)
+    - No circular dependencies
     """
     project_root = Path(project_root)
     errors = []
@@ -179,32 +284,79 @@ def validate_dependencies(
 
     transports = set(manifests["transport"].keys())
     adapters = set(manifests["adapter"].keys())
+    drivers = set(manifests["driver"].keys())
 
     # Check adapter dependencies
     for name, adapter in manifests["adapter"].items():
         # Use helper method to get transport names
         transport_deps = adapter.depends_on.get_transport_names()
         for transport_dep in transport_deps:
+            # Check it exists
             if transport_dep not in transports:
-                errors.append(ManifestError(
-                    path=f"adapters/{name}/manifest.yaml",
-                    kind="adapter",
-                    message=f"Depends on non-existent transport: {transport_dep}",
-                    details=[f"Available transports: {', '.join(sorted(transports)) or 'none'}"],
-                ))
+                # Check if it's actually an adapter or driver (layer violation)
+                if transport_dep in adapters:
+                    errors.append(ManifestError(
+                        path=f"adapters/{name}/manifest.yaml",
+                        kind="adapter",
+                        message=f"Layer violation: adapter depends on adapter '{transport_dep}'",
+                        details=[
+                            "Adapters can only depend on transports",
+                            f"'{transport_dep}' is an adapter, not a transport",
+                        ],
+                    ))
+                elif transport_dep in drivers:
+                    errors.append(ManifestError(
+                        path=f"adapters/{name}/manifest.yaml",
+                        kind="adapter",
+                        message=f"Layer violation: adapter depends on driver '{transport_dep}'",
+                        details=[
+                            "Adapters can only depend on transports",
+                            f"'{transport_dep}' is a driver, not a transport",
+                        ],
+                    ))
+                else:
+                    errors.append(ManifestError(
+                        path=f"adapters/{name}/manifest.yaml",
+                        kind="adapter",
+                        message=f"Depends on non-existent transport: {transport_dep}",
+                        details=[f"Available transports: {', '.join(sorted(transports)) or 'none'}"],
+                    ))
 
     # Check driver dependencies
     for name, driver in manifests["driver"].items():
         # Use helper method to get adapter names
         adapter_deps = driver.depends_on.get_adapter_names()
         for adapter_dep in adapter_deps:
+            # Check it exists
             if adapter_dep not in adapters:
-                errors.append(ManifestError(
-                    path=f"drivers/{name}/manifest.yaml",
-                    kind="driver",
-                    message=f"Depends on non-existent adapter: {adapter_dep}",
-                    details=[f"Available adapters: {', '.join(sorted(adapters)) or 'none'}"],
-                ))
+                # Check if it's actually a transport or driver (layer violation)
+                if adapter_dep in transports:
+                    errors.append(ManifestError(
+                        path=f"drivers/{name}/manifest.yaml",
+                        kind="driver",
+                        message=f"Layer violation: driver depends on transport '{adapter_dep}'",
+                        details=[
+                            "Drivers can only depend on adapters (not transports directly)",
+                            f"'{adapter_dep}' is a transport - wrap it in an adapter first",
+                        ],
+                    ))
+                elif adapter_dep in drivers:
+                    errors.append(ManifestError(
+                        path=f"drivers/{name}/manifest.yaml",
+                        kind="driver",
+                        message=f"Layer violation: driver depends on driver '{adapter_dep}'",
+                        details=[
+                            "Drivers cannot depend on other drivers",
+                            f"'{adapter_dep}' is a driver - extract shared logic to an adapter",
+                        ],
+                    ))
+                else:
+                    errors.append(ManifestError(
+                        path=f"drivers/{name}/manifest.yaml",
+                        kind="driver",
+                        message=f"Depends on non-existent adapter: {adapter_dep}",
+                        details=[f"Available adapters: {', '.join(sorted(adapters)) or 'none'}"],
+                    ))
 
     all_valid = len(errors) == 0
     return all_valid, errors
