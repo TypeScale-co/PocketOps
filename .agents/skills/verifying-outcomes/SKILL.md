@@ -136,12 +136,18 @@ Only mark complete if review status is `approved`.
 
 **Not verified**: "Something may be wrong. I can't find the message. Should I try again?"
 
-## On Failure
+## Handoff
 
-Enter iteration loop:
-1. Observe what happened
-2. Diagnose root cause
-3. Fix at appropriate layer
-4. Retry
+**On `verified`:**
+1. Run `reviewing-contracts` (or let `complete_run()` do it)
+2. If review passes, call `complete_run()` to finalize
+3. Report success to user with evidence
 
-See `iterating-to-completion` skill.
+**On `partial` or `not_verified`:**
+1. Proceed to `iterating-to-completion`
+2. Diagnose → fix → retry (max 5 attempts)
+3. Return here after fix
+
+**On `blocked`:**
+1. Report blocker to user
+2. Either wait for external resolution or escalate

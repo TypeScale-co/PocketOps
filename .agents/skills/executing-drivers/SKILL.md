@@ -167,6 +167,18 @@ user_facing_status: <must equal completion_status>
 iterations: []  # If retry was needed
 ```
 
+## Handoff
+
+After execution completes:
+
+**On success:** Proceed to `verifying-outcomes` to confirm the real-world result.
+
+**On failure:** Proceed to `iterating-to-completion` to diagnose and fix.
+
+**After verification passes:** Call `complete_run()` to finalize. This is mandatory.
+
+---
+
 ## Never Do
 
 1. Execute without dry-run first (for external writes)

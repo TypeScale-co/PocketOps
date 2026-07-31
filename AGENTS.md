@@ -219,7 +219,7 @@ DISCOVER → CLARIFY → PLAN → PREFLIGHT → BUILD
 
 | Phase | Purpose |
 |-------|---------|
-| DISCOVER | Understand user intent |
+| DISCOVER | Understand user intent, capture raw request |
 | CLARIFY | Resolve unknowns (ask only business questions) |
 | PLAN | Design approach, search existing components first |
 | PREFLIGHT | Verify dependencies, credentials, network |
@@ -317,17 +317,20 @@ See `docs/terminology.md` for definitions. See `docs/safety-and-approvals.md` fo
 
 | Skill | Purpose |
 |-------|---------|
-| `understanding-requests` | Parse user intent into outcome contract |
+| `understanding-requests` | Parse user intent into outcome contract (includes CLARIFY) |
 | `planning-workflows` | Create execution plan with dependency walk |
 | `managing-dependencies` | Install, verify, configure system requirements |
-| `managing-credentials` | Guide non-technical users through credential setup |
+| `managing-credentials` | Credential collection with session reuse |
 | `building-transports` | Create/extend communication mechanisms |
-| `building-adapters` | Create/extend third-party interfaces |
-| `building-drivers` | Create/extend workflow scripts |
+| `building-adapters` | **Core skill**: third-party integration (access discovery, auth, API/browser) |
+| `building-drivers` | Create/extend workflow scripts (composes adapters) |
 | `executing-drivers` | Run workflows with approval gates |
 | `verifying-outcomes` | Confirm real-world results |
-| `reviewing-contracts` | Independent review before completion (via complete_run) |
+| `reviewing-contracts` | Independent review before completion (consider sub-agent) |
 | `iterating-to-completion` | Autonomous feedback loops (max 5 attempts) |
+
+**Note:** `building-adapters` is the hardest and most important skill. Consider running
+complex integrations in a sub-agent with fresh context. Everything else composes adapters.
 
 ---
 

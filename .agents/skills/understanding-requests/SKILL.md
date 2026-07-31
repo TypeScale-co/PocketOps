@@ -9,7 +9,15 @@ Parse natural language requests into structured outcome contracts.
 
 ## When to Use
 
-At the **DISCOVER** phase when a user describes something they want accomplished.
+At the **DISCOVER** and **CLARIFY** phases when a user describes something they
+want accomplished.
+
+## Core Principle
+
+**Capture the user's exact words. Don't interpret them into something easier.**
+
+The `raw_request` field preserves what the user actually asked for. All
+downstream validation compares against this, not against your interpretation.
 
 ## Process
 
@@ -163,7 +171,9 @@ Do not label access `available` from documentation alone. `available` requires
 official documentation and an operational provider-account, API/SDK/CLI,
 browser, or live-system probe.
 
-## Clarification Rules
+## CLARIFY Phase
+
+Resolve unknowns before proceeding. This is part of understanding the request.
 
 ### Ask User When
 - Question requires **business context** only they have
@@ -176,6 +186,8 @@ browser, or live-system probe.
 - Answer findable by querying existing adapters
 - Reasonable default exists
 - Question is technical (API, auth, structure)
+
+**Technical questions are never asked.** The agent owns all technical decisions.
 
 ## Example
 

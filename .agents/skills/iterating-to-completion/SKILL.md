@@ -166,3 +166,21 @@ The iteration loop doesn't end until `complete_run()` succeeds. If it fails due 
 **Never say**: "Can you try running X?" / "What do you see when...?" / "Check your settings"
 
 **Never declare done without `complete_run()`**—the workflow is incomplete until the function succeeds.
+
+## Handoff
+
+**On success (before max attempts):**
+1. Return to `verifying-outcomes` with the fix applied
+2. Re-verify the outcome
+3. Proceed to `complete_run()`
+
+**On max attempts reached:**
+1. Escalate to user with full diagnostic context
+2. Wait for user input or resolution
+3. Resume iteration if user provides solution
+
+**Fixes go to the layer that failed:**
+- Transport broken → `building-transports`
+- Adapter broken → `building-adapters`
+- Driver broken → `building-drivers`
+- Credential issue → `managing-credentials`

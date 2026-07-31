@@ -263,13 +263,28 @@ review:
 8. Regenerate and write review output to the run record
 9. Return APPROVED or REJECTED
 
-## On Rejection
+## Handoff
 
-If review is rejected:
+**On Approval:**
+1. Review is recorded in run file
+2. `complete_run()` proceeds to archive
+3. Report success to user
+
+**On Rejection:**
 1. Do NOT mark the workflow as complete
 2. Document specific failures in the review
 3. Provide actionable recommendations
-4. Return to BUILD or PLAN phase as appropriate
+4. Return to appropriate phase:
+   - Outcome mismatch → `understanding-requests` (contract was wrong)
+   - Naming dishonesty → `building-adapters` (adapter was wrong)
+   - User technical work → `building-adapters` (need real integration)
+   - Verification failure → `verifying-outcomes` (need real evidence)
+
+## Sub-Agent Recommendation
+
+Consider running review in a **fresh sub-agent context** to avoid self-review
+bias. The agent that built the solution may rationalize shortcuts that an
+independent reviewer would catch.
 
 ## Integration with Gates
 

@@ -152,7 +152,6 @@ fallback input as the primary plan. First evaluate:
 
 - Official API
 - Vendor SDK or CLI
-- Delegated access provider
 - Browser-assisted authorization or retrieval
 - Credential collection/setup flow
 
@@ -172,4 +171,6 @@ user work prevents `capability_ready_not_connected`.
 2. Proceed to `managing-dependencies` if installs needed
 3. Proceed to `building-transports` if new transports needed
 4. Proceed to `building-adapters` if new adapters needed
+   - **This is the critical skill** - access discovery, auth flows, and integration
+   - Consider running in a sub-agent for complex integrations
 5. Proceed to `building-drivers` for workflow assembly
