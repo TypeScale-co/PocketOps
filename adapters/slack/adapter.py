@@ -8,11 +8,12 @@ Depends on HTTP transport. Hides Slack API details.
 import os
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 # Import from sibling transport
 import sys
 sys.path.insert(0, str(__file__).replace('/adapters/slack/adapter.py', ''))
-from transports.http import HttpTransport, AuthConfig, TransportError
+from transports.http import AuthConfig, HttpResponse, HttpTransport
 
 from .types import Message, Channel, SlackError
 
@@ -73,14 +74,19 @@ class SlackAdapter:
                 timestamp=datetime.now(),
             )
 
-        self._check_response(response)
-
-        data = response.body
+        data = self._response_body(response)
+        timestamp = data.get("ts")
+        response_channel = data.get("channel")
+        if not isinstance(timestamp, str) or not isinstance(response_channel, str):
+            raise SlackError(
+                "Slack API response omitted required message fields",
+                "invalid_response",
+            )
         return Message(
-            id=data["ts"],
-            channel=data["channel"],
+            id=timestamp,
+            channel=response_channel,
             text=text,
-            timestamp=datetime.fromtimestamp(float(data["ts"].split(".")[0])),
+            timestamp=datetime.fromtimestamp(float(timestamp.split(".")[0])),
         )
 
     def get_message(
@@ -113,9 +119,8 @@ class SlackAdapter:
                 timestamp=datetime.now(),
             )
 
-        self._check_response(response)
-
-        messages = response.body.get("messages", [])
+        body = self._response_body(response)
+        messages = body.get("messages", [])
         if not messages:
             return None
 
@@ -151,7 +156,7 @@ class SlackAdapter:
         if dry_run:
             return True
 
-        self._check_response(response)
+        self._response_body(response)
         return True
 
     def list_channels(
@@ -173,23 +178,23 @@ class SlackAdapter:
         if dry_run:
             return []
 
-        self._check_response(response)
-
+        body = self._response_body(response)
         return [
             Channel(
                 id=ch["id"],
                 name=ch["name"],
                 is_private=ch.get("is_private", False),
             )
-            for ch in response.body.get("channels", [])
+            for ch in body.get("channels", [])
         ]
 
-    def _check_response(self, response) -> None:
-        """Check Slack API response for errors."""
-
-        if not response.body:
+    def _response_body(self, response: HttpResponse) -> dict[str, Any]:
+        """Validate a Slack API response and return its JSON object."""
+        if not isinstance(response.body, dict) or not response.body:
             raise SlackError("Empty response from Slack", "unknown_error")
 
         if not response.body.get("ok"):
             error = response.body.get("error", "unknown_error")
             raise SlackError(f"Slack API error: {error}", error)
+
+        return response.body

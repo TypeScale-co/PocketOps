@@ -1,173 +1,250 @@
 ---
 name: managing-credentials
-description: Guide non-technical users through credential setup
+description: Guide non-technical users through credential collection
 ---
 
 # Managing Credentials
 
-Help non-technical users set up credentials for third-party services without exposing them to technical complexity.
+Help non-technical users provide credentials without exposing technical
+complexity.
+
+## When to Use
+
+- During PREFLIGHT when a credential is missing
+- When an adapter returns `authentication_failed`
+- When driver's `setup-auth` or `authorize` command runs
+- After `building-adapters` determines credentials are needed
 
 ## Core Principle
 
 **The user doesn't know what an API token is—and shouldn't need to.**
 
-The agent:
+Better yet: **if they're already logged in somewhere, don't ask.**
 
-1. Detects missing credentials
-2. Explains what's needed in plain language
-3. Walks user through getting it (step-by-step)
-4. Stores it safely
-5. Verifies it works
+## Authorization Modes
 
-## When to Use
+| Mode | User Experience | When to Use |
+|------|-----------------|-------------|
+| `none` | No action needed | Existing CLI/browser session |
+| `secret_collection` | Paste a token | API keys, personal tokens |
+| `browser_oauth` | Click approve in browser | OAuth consent flows |
+| `secret_and_browser` | Both steps | App credentials + user consent |
 
--   During PREFLIGHT when a credential is missing
--   When an adapter returns `invalid_auth` or `authentication_failed`
--   When user asks to connect a new service
+---
 
-## Detection
+## First: Check for Existing Sessions
 
-Check for credential before using adapter:
+Before collecting new credentials, check what already exists.
 
-```yaml
-credential_check:
-    name: SLACK_BOT_TOKEN
-    status: missing | invalid | expired | valid
-    required_by: adapters/slack
-    required_for: "posting messages to Slack"
+### CLI Sessions
+
+```bash
+# GitHub - already authenticated?
+gh auth status
+
+# AWS - has credentials?
+aws sts get-caller-identity
+
+# Google Cloud - logged in?
+gcloud auth list
+
+# Azure - has account?
+az account show
 ```
 
-## User Communication
+**If authenticated:** No collection needed. Use the existing session.
 
-**Never say**:
+### Browser Sessions
 
--   "Set the SLACK_BOT_TOKEN environment variable"
--   "Create an OAuth application"
--   "Get your API key from the developer console"
+```python
+# Is user logged into the service in Chrome?
+from playwright.sync_api import sync_playwright
 
-**Do say**:
+with sync_playwright() as p:
+    context = p.chromium.launch_persistent_context(
+        user_data_dir="~/Library/Application Support/Google/Chrome/Default",
+        headless=True
+    )
+    page = context.new_page()
+    page.goto("https://app.service.com/dashboard")
 
--   "I need permission to post to Slack. I'll walk you through it—takes about 2 minutes."
--   "Go to [link]. You should see a page that says 'Your Apps'."
--   "Click the button that says 'Create New App'."
--   "Look for a long code starting with 'xoxb-'. That's what I need."
--   "A browser window will open for you to paste it—it won't appear in our conversation."
+    if "login" not in page.url:
+        print("User is already logged in - no credentials needed")
+```
 
-## Setup Flow
+**If logged in:** Ask for consent, then automate within existing session:
 
-### Step 1: Explain What's Needed
+> "You're already logged into [Service] in Chrome. I can use your existing
+> session—no passwords needed. Is that okay?"
 
-> "To post to Slack, I need a bot token. This lets me send messages on your behalf.
-> I'll walk you through creating one. It takes about 2 minutes."
+### Environment Variables
+
+```bash
+# Already configured?
+grep "^SERVICE_TOKEN=" .env
+```
+
+---
+
+## Credential Collection Flow
+
+When new credentials are actually needed:
+
+### Step 1: Explain in Plain Language
+
+> "To read your HubSpot tasks, I need a personal access token. This lets me
+> access your HubSpot data on your behalf. It takes about 2 minutes to set up."
+
+**Never say:**
+- "Set the HUBSPOT_TOKEN environment variable"
+- "Create an OAuth2 application"
+- "Configure the client_id and client_secret"
 
 ### Step 2: Provide Direct Link
 
-> "Open this link: https://api.slack.com/apps
-> You'll need to log into your Slack workspace."
+> "Open this link: https://app.hubspot.com/private-apps
+> You'll need to log into your HubSpot account."
 
 ### Step 3: Guide Through UI
 
 Give specific, visual instructions:
 
-> "Click the green button that says **Create New App**"
-> "Choose **From scratch**"
-> "Name it something like 'PocketOps Bot'"
-> "Select your workspace from the dropdown"
+> "Click the orange button that says **Create a private app**"
+> "Name it something like 'PocketOps Integration'"
+> "Under Scopes, find **CRM** and check **crm.objects.contacts.read**"
+> "Click **Create app** at the top right"
+> "Copy the token that appears—it starts with **pat-**"
 
-### Step 4: Guide to Token
+### Step 4: Secure Collection
 
-> "In the left sidebar, click **OAuth & Permissions**"
-> "Scroll down to **Bot Token Scopes**"
-> "Click **Add an OAuth Scope** and add: chat:write, channels:read"
-> "Scroll up and click **Install to Workspace**"
-> "Copy the token that starts with **xoxb-**"
-
-### Step 5: Collect Token
-
-Run the credential collection script:
+Collect the credential securely:
 
 ```bash
-./scripts/collect-credential SLACK_BOT_TOKEN "Slack Bot Token"
+./scripts/collect-credential SERVICE_TOKEN "Service Access Token"
 ```
 
-Tell the user:
-
-> "A secure browser window will open for you to paste the token. It won't appear in our conversation."
+Tell user:
+> "A secure window will open for you to paste the token. It won't appear in
+> our conversation."
 
 The script:
+1. Opens browser with simple form
+2. User pastes and clicks Save
+3. Writes to `.env` with restrictive permissions (chmod 600)
+4. Token never appears in conversation
 
-1. Opens browser with a simple form
-2. User pastes token and clicks Save
-3. Writes to `.env` file with restrictive permissions
-4. Browser shows confirmation, script exits
-
-### Step 6: Confirm
-
-After script completes successfully:
-
-> "Saved. I'll use this for all future Slack requests."
-
-### Step 7: Verify
-
-Test the credential:
+### Step 5: Verify
 
 > "Let me verify it works..."
-> "Connected! I can see 12 channels in your workspace."
+> "Connected! I can see 47 contacts in your HubSpot account."
+
+---
+
+## OAuth Flows
+
+For services requiring OAuth consent:
+
+### Step 1: Explain
+
+> "I need to connect to your Google account. A browser window will open for
+> you to sign in and approve access."
+
+### Step 2: Launch Flow
+
+The driver's `authorize` command should open the browser directly:
+
+```bash
+./drivers/google-drive/driver.py authorize
+# Opens: https://accounts.google.com/oauth/authorize?client_id=...
+```
+
+**Important:** Print a URL is not enough. The command must open the browser.
+
+### Step 3: Handle Callback
+
+After user approves:
+- Local server receives callback with code
+- Exchange code for tokens
+- Store refresh token securely
+- Confirm success
+
+> "Connected! I can see your Google Drive."
+
+---
+
+## 2FA Handling
+
+When login requires two-factor authentication:
+
+```python
+# In browser automation
+if page.query_selector("#2fa-input"):
+    print("Your account requires 2FA. Check your authenticator app.")
+    code = input("Enter the 6-digit code: ")
+    page.fill("#2fa-input", code)
+    page.click("#verify")
+```
+
+Communicate clearly:
+> "Your bank requires a verification code. Check your phone for a text message
+> and enter the 6-digit code."
+
+---
 
 ## Credential Storage
 
-Use `./scripts/collect-credential` to collect and store credentials securely.
+| Location | Contents | Security |
+|----------|----------|----------|
+| `.env` | API tokens, secrets | chmod 600, in .gitignore |
+| `config/credentials/` | OAuth tokens | chmod 600, in .gitignore |
+| System keychain | (future) | OS-level encryption |
 
-```bash
-./scripts/collect-credential ENV_VAR_NAME "Human-readable label"
-```
+Never:
+- Store credentials in code
+- Log credential values
+- Show credentials in conversation
+- Commit credentials to git
 
-The script:
-
--   Opens a browser window with a simple form
--   User pastes token and submits
--   Upserts to `.env` file at project root
--   Sets file permissions to owner-only (chmod 600)
--   Token never appears in conversation history
-
-### Location
-
--   `.env` file at project root
--   Ensure `.env` is in `.gitignore`
+---
 
 ## Service-Specific Guides
 
-Each adapter should document its credential setup:
+Document credential setup per adapter:
 
-| Service | Credential            | Where to Get                                  |
-| ------- | --------------------- | --------------------------------------------- |
-| Slack   | Bot token (xoxb-)     | api.slack.com → Your Apps → OAuth             |
-| HubSpot | Access token (pat-)   | Settings → Integrations → Private Apps        |
-| Google  | Service account JSON  | Cloud Console → IAM → Service Accounts        |
-| GitHub  | Personal access token | Settings → Developer → Personal Access Tokens |
+| Service | Credential Type | Where to Get |
+|---------|-----------------|--------------|
+| Slack | Bot token (xoxb-) | api.slack.com → Your Apps → OAuth |
+| HubSpot | Access token (pat-) | Settings → Integrations → Private Apps |
+| GitHub | Personal token (ghp_) | Settings → Developer → Tokens |
+| Google | OAuth + refresh | Cloud Console → Credentials |
+| AWS | Access key + secret | IAM → Security Credentials |
 
-## Refresh & Expiration
+---
 
-Some tokens expire. When adapter returns `token_expired`:
+## Handoff
 
-1. Detect the error
-2. Tell user: "Your HubSpot token expired. Let's get a new one."
-3. Walk through refresh flow
-4. Update `.env`
-5. Retry the operation
+After credentials are collected and verified:
 
-## What NOT to Do
+**If building capability:** Return to `building-adapters` or `building-drivers`
+with credential status updated.
 
-1. **Don't ask user to "set environment variables"** - they don't know how
-2. **Don't show raw error messages** - translate to plain language
-3. **Don't store tokens in code** - always use .env
-4. **Don't log token values** - even in debug output
-5. **Don't require technical knowledge** - guide every click
+**If connecting:** Update connection status:
+```yaml
+connection:
+  status: connected
+  credential_status: valid
+```
 
-## Future Improvements
+**If executing workflow:** Proceed to `executing-drivers`.
 
-See `TODO-credentials.md` for roadmap:
+---
 
--   Browser-assisted OAuth flow
--   System keychain integration
--   Agent-created credentials via browser automation
+## Never Do
+
+1. Ask user to "set environment variables"
+2. Show raw error messages—translate to plain language
+3. Log or display credential values
+4. Require technical knowledge to complete setup
+5. Hide credential collection behind flags (`--collect`, `--interactive`)
+6. Print OAuth URLs without opening them
+7. Conflate provider provisioning with user authorization

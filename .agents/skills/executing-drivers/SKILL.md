@@ -107,10 +107,10 @@ else:
 ```
 
 What `complete_run()` does:
-1. Runs reviewing-contracts checks automatically
+1. Regenerates reviewing-contracts checks automatically
 2. Saves review results to run file
 3. Checks all VERIFY → COMPLETE gates
-4. Blocks if any gate fails (unless force=True)
+4. Blocks if any gate fails; force completion is disabled
 5. Archives the run to runs/archive/
 
 **If you don't call `complete_run()`**:
@@ -134,6 +134,8 @@ What `complete_run()` does:
 
 ```yaml
 run_id: <timestamp>-<slug>
+contract_type: build_capability | connect_capability | execute_workflow | framework_change
+target_completion_status: <reviewed target>
 driver: <driver-name>
 plan: <plan-file>
 
@@ -155,8 +157,27 @@ verification:
   status: verified | partial | failed
   checks: []
 
+connection:
+  status: not_assessed | not_connected | connected
+  credential_status: not_assessed | missing | configured | valid | blocked
+
+completion_status: capability_built | capability_built_access_blocked | capability_ready_not_connected | capability_connected | outcome_delivered
+user_facing_status: <must equal completion_status>
+
 iterations: []  # If retry was needed
 ```
+
+## Handoff
+
+After execution completes:
+
+**On success:** Proceed to `verifying-outcomes` to confirm the real-world result.
+
+**On failure:** Proceed to `iterating-to-completion` to diagnose and fix.
+
+**After verification passes:** Call `complete_run()` to finalize. This is mandatory.
+
+---
 
 ## Never Do
 
@@ -166,4 +187,6 @@ iterations: []  # If retry was needed
 4. Hide failures from user
 5. Modify production data without explicit approval
 6. **Declare "done" without calling `complete_run()`** - the workflow is incomplete
-7. Bypass gates with force=True unless explicitly authorized by user
+7. Bypass gates with `force=True`
+8. Prewrite an approved review instead of accepting the regenerated review
+9. Report a stronger user-facing status than the reviewed completion status

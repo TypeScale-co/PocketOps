@@ -5,9 +5,7 @@ These are the actual gate functions that enforce constraints
 at phase transitions.
 """
 
-import os
 from pathlib import Path
-from typing import Optional
 
 from pocketops.gates.registry import GateRegistry, GateResult, Phase
 
@@ -16,9 +14,6 @@ def _find_project_root() -> Path:
     """Find the PocketOps project root."""
     # Start from current working directory
     cwd = Path.cwd()
-
-    # Look for PocketOps markers
-    markers = ["plans", "runs", "adapters", "drivers", "transports"]
 
     current = cwd
     while current != current.parent:

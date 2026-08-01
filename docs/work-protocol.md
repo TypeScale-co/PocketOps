@@ -116,7 +116,10 @@ runs/current/* → runs/archive/
 ```yaml
 run_id: <timestamp>-<slug>
 request_id: <id>
+contract_type: build_capability | connect_capability | execute_workflow | framework_change
+target_completion_status: <reviewed terminal status>
 driver: <name>
+framework_baseline_revision: <git revision at run creation>
 
 timestamps:
   planned_at: <time>
@@ -140,6 +143,59 @@ iterations:
     result: failure | success
     diagnosis: <if failed>
     fix: <if failed>
+
+connection:
+  status: not_assessed | not_connected | connected
+  credential_status: not_assessed | missing | configured | valid | blocked
+
+completion_status: capability_built | capability_built_access_blocked | capability_ready_not_connected | capability_connected | outcome_delivered
+user_facing_status: <must equal completion_status>
+```
+
+## Lifecycle Contracts
+
+Capability construction, connection, and execution are separate reviewed
+outcomes:
+
+1. `build_capability` produces reusable components and a working auth/connect
+   path. Conditional or blocked provider access stops at
+   `capability_built_access_blocked`. Missing end-user credentials stop at
+   `capability_ready_not_connected` only after provider access is operational.
+2. `connect_capability` runs authorization and proves live source access,
+   producing `capability_connected`.
+3. `execute_workflow` runs the requested automation and verifies the result,
+   producing `outcome_delivered`.
+4. `framework_change` is reserved for explicit changes to PocketOps itself.
+
+`complete_run()` always regenerates contract review. It does not trust a review
+written into the run by the executing agent, and force completion is disabled.
+
+For non-framework contracts, review rejects changes to `AGENTS.md`, `.agents/`,
+`pocketops/`, and `scripts/verify`. It checks both the working tree and commits
+made after `create_run()`.
+
+Credential-dependent build evidence records observed default command behavior:
+
+```yaml
+verification:
+  evidence:
+    command_behavior:
+      setup-auth:
+        passed: true
+        default_invocation: true
+        launches_secure_collection: true
+      authorize:
+        passed: true
+        default_invocation: true
+        opens_browser: true
+      connect:
+        passed: true
+        default_invocation: true
+        validates_connection: true
+      rollback:
+        passed: true
+        default_invocation: true
+        removes_local_credentials: true
 ```
 
 ---
@@ -150,6 +206,8 @@ iterations:
 - DRY-RUN (for external writes)
 - APPROVAL (for external writes)
 - VERIFY (always confirm outcome)
+- Fresh contract review (prewritten approval is discarded)
+- Truthful completion and user-facing statuses
 
 ### Always Record
 - Plan (what was intended)

@@ -13,26 +13,56 @@ Parsing user requests into structured outcome contracts.
 ## Outcome Contract Schema
 
 ```yaml
-request_id: <timestamp>-<slug>
-timestamp: <when received>
+id: <timestamp>-<slug>
+created_at: <when received>
 raw_request: "<user's exact words>"
+contract_type: build_capability | connect_capability | execute_workflow | framework_change
+target_completion_status: capability_built | capability_built_access_blocked | capability_ready_not_connected | capability_connected | outcome_delivered
+outcome: "<what should be different after>"
 
-outcome:
-  description: "<what should be different after>"
-  observable_by: "<how to verify>"
+verification:
+  checks:
+    - name: <check-name>
+      description: <how success will be verified>
+      method: retrieve-and-compare | count-and-match | state-transition | independent-path
+      expected: <expected evidence>
+      critical: true
 
-sources:
-  - system: <name>
-    data: <what's needed>
-    access: known | needs-discovery | needs-credentials
+constraints:
+  - name: <constraint-name>
+    description: <constraint>
 
-destinations:
-  - system: <name>
-    action: <what will be done>
-    risk: read | write | destructive
-    scope: local | external | production
-    reversibility: reversible | compensatable | irreversible
-    approval: automatic | preview-required | explicit-required
+source_system_request:
+  requested: true | false
+  system: <source system name>
+  expected_agent_access: true
+
+access_discovery:
+  delegated_provider:
+    status: not_checked | unavailable | conditionally_available | available | operator_blocked
+    operationally_obtainable: true | false
+    evidence:
+      - kind: official_documentation | provider_account | api_probe | sdk_probe | cli_probe | browser_probe | live_system
+        reference: <reviewable source or artifact>
+        finding: <what it proves>
+    blockers: []
+
+provider_provisioning:
+  provider: <provider name>
+  status: not_required | ready | agent_action_required | user_action_required | operator_blocked
+  user_work_type: none | basic_consent | technical | commercial_approval
+  agent_can_complete: true | false
+  authorization_mode: none | secret_collection | browser_oauth | secret_and_browser
+  stores_local_credentials: true | false
+  creates_external_grant: true | false
+  required_actions: []
+  evidence: []
+
+fallback_mode:
+  type: manual_file | user_copy_paste | mock_data | sandbox_only | other
+  explicitly_requested_by_user: false
+  accepted_after_access_discovery: false
+  reason: <why fallback is necessary>
 
 entities:
   people: []
@@ -47,6 +77,75 @@ unknowns:
 
 assumptions: []
 ```
+
+## Contract Types
+
+Contract types are reviewed lifecycle modes, not optional labels:
+
+| Type | Purpose | Allowed target |
+|------|---------|----------------|
+| `build_capability` | Construct reusable automation | `capability_built`, `capability_built_access_blocked`, `capability_ready_not_connected` |
+| `connect_capability` | Authorize and verify source access | `capability_connected` |
+| `execute_workflow` | Deliver the requested real-world outcome | `outcome_delivered` |
+| `framework_change` | Change PocketOps gates, schemas, review, or protocol | `capability_built` |
+
+An ad hoc `capability_build` flag is invalid. `framework_change` is valid only
+when the raw request explicitly asks for framework or protocol changes.
+
+---
+
+## Outcome Preservation
+
+Contracts must preserve the user's requested automation boundary.
+
+If the user asks PocketOps to get information from a source system, do not
+contract a workflow where the user manually exports, uploads, or places source
+files unless the user explicitly requested that input mode or explicitly accepts
+it after access discovery.
+
+Fallback input modes must be recorded as:
+
+```yaml
+source_system_request:
+  requested: true
+  system: <source system name>
+  expected_agent_access: true
+fallback_mode:
+  type: manual_file | user_copy_paste | mock_data | sandbox_only | other
+  explicitly_requested_by_user: false
+  accepted_after_access_discovery: true
+  reason: <why fallback is necessary>
+access_discovery:
+  delegated_provider:
+    status: conditionally_available
+    operationally_obtainable: false
+    evidence:
+      - kind: official_documentation
+        reference: <official source>
+        finding: <documented access requirement>
+    blockers: [<unmet provider requirement>]
+```
+
+Without that, the contract is an outcome downgrade and should be rejected before
+BUILD.
+
+`source_system_request.requested` must agree with `raw_request`. An account or
+source-system request cannot set it to `false` to avoid source-access gates.
+
+For a credential-dependent capability build, access discovery must identify a
+viable API, SDK/CLI, delegated provider, browser, or credential route. The
+driver must expose a setup/connect command, and the target remains
+`capability_ready_not_connected` until live access is authorized.
+
+`capability_ready_not_connected` requires more than a plausible implementation:
+the access path must include official documentation and operational proof, and
+provider provisioning must already be ready. Otherwise use
+`capability_built_access_blocked`.
+
+Provider/developer setup is separate from end-user account authorization.
+Developer accounts, product enablement, commercial approval, and callback
+registration belong in `provider_provisioning`. Technical or commercial user
+work is a blocker rather than a missing-credential state.
 
 ---
 

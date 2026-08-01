@@ -5,7 +5,7 @@ Low-level HTTP communication with authentication, retries, and pagination.
 Does NOT know about business concepts - only how to make HTTP requests.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Iterator
 import base64
 

@@ -200,8 +200,18 @@ if $PYTHON -c "import pytest" 2>/dev/null; then
         FAILED=$((FAILED + 1))
     fi
 else
-    echo -e "${YELLOW}!${NC} pytest not installed, skipping tests"
-    WARNINGS=$((WARNINGS + 1))
+    if find tests -name 'test_*.py' -type f -print -quit 2>/dev/null | grep -q .; then
+        if $PYTHON -m unittest discover -s tests -v; then
+            echo -e "${GREEN}✓${NC} Tests passed (unittest)"
+            PASSED=$((PASSED + 1))
+        else
+            echo -e "${RED}✗${NC} Tests failed (unittest)"
+            FAILED=$((FAILED + 1))
+        fi
+    else
+        echo -e "${YELLOW}!${NC} pytest not installed and no unittest tests found"
+        WARNINGS=$((WARNINGS + 1))
+    fi
 fi
 
 # Summary

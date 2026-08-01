@@ -64,13 +64,59 @@ verification:
 | `not_verified` | Cannot confirm outcome | Diagnose and retry |
 | `blocked` | Cannot proceed | Wait or escalate |
 
+## Completion Status
+
+Verification status and completion status answer different questions. Record
+both, and do not overstate the latter:
+
+| Completion status | Meaning |
+|-------------------|---------|
+| `capability_built` | Reusable local capability is built; no connection is required |
+| `capability_built_access_blocked` | Components exist, but provider or access prerequisites are unresolved |
+| `capability_ready_not_connected` | Real access/auth path is built, credentials are missing |
+| `capability_connected` | Credentials and live source access are verified |
+| `outcome_delivered` | The requested workflow ran and its real-world outcome is verified |
+
+Set `user_facing_status` to the same value. Contract review rejects a mismatch.
+Only `connect_capability` and `execute_workflow` can prove live source access;
+build tests alone cannot support `capability_connected` or `outcome_delivered`.
+
+For a credential-dependent capability build, evidence must include observed
+default command behavior:
+
+```yaml
+verification:
+  evidence:
+    command_behavior:
+      setup-auth:
+        passed: true
+        default_invocation: true
+        launches_secure_collection: true
+      authorize:
+        passed: true
+        default_invocation: true
+        opens_browser: true
+      connect:
+        passed: true
+        default_invocation: true
+        validates_connection: true
+      rollback:
+        passed: true
+        default_invocation: true
+        removes_local_credentials: true
+```
+
+Checking command names is insufficient. Tests must invoke default behavior and
+observe the secure collector, browser launcher, connection validation, and
+credential removal or revocation boundary.
+
 ## Contract Review Gate
 
 **Before marking COMPLETE**, run the `reviewing-contracts` skill.
 
 This independent review catches:
 - Outcome mismatch (delivery doesn't match contract)
-- Naming dishonesty (e.g., "wells-fargo" adapter that reads CSVs)
+- Naming dishonesty (e.g., service-named adapter that reads local exports)
 - Hidden user work (user must do technical tasks)
 - Synthetic verification (tested against fake data)
 
@@ -90,12 +136,18 @@ Only mark complete if review status is `approved`.
 
 **Not verified**: "Something may be wrong. I can't find the message. Should I try again?"
 
-## On Failure
+## Handoff
 
-Enter iteration loop:
-1. Observe what happened
-2. Diagnose root cause
-3. Fix at appropriate layer
-4. Retry
+**On `verified`:**
+1. Run `reviewing-contracts` (or let `complete_run()` do it)
+2. If review passes, call `complete_run()` to finalize
+3. Report success to user with evidence
 
-See `iterating-to-completion` skill.
+**On `partial` or `not_verified`:**
+1. Proceed to `iterating-to-completion`
+2. Diagnose → fix → retry (max 5 attempts)
+3. Return here after fix
+
+**On `blocked`:**
+1. Report blocker to user
+2. Either wait for external resolution or escalate

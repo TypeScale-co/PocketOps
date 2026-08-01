@@ -50,5 +50,5 @@ authentication:
 
 trust:
   status: integration-verified
-  last_verified: 2026-07-28
+  last_verified: "2026-07-28"
   notes: "Core transport used by Slack adapter"

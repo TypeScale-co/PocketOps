@@ -47,6 +47,10 @@ What `complete_run()` validates:
 - Contract/plan file exists (was PLAN phase completed?)
 - Verification evidence is non-empty (not fake)
 - All review checks pass (outcome-match, naming-honesty, etc.)
+- The contract preserved `raw_request` and did not downgrade source-system access to fallback input
+- Contract type, terminal status, connection state, and user-facing claim agree
+- Ordinary tasks did not modify protected framework enforcement files
+- Capability builds include a real source access path and auth/connect command
 
 ### You Cannot Declare "Done" Without Proof
 
@@ -74,14 +78,37 @@ If you skip `complete_run()`:
 ## Forbidden Actions
 
 1. **Never declare completion without `complete_run()`**
-2. **Never bypass gates with `force=True` unless user explicitly authorizes**
+2. **Never bypass gates with `force=True`; force completion is disabled**
 3. **Never create adapters that don't actually connect to the named service**
-   - A `wells-fargo` adapter MUST connect to Wells Fargo
-   - Reading local CSV files is NOT a Wells Fargo adapter
+   - A service-named adapter MUST connect to that service
+   - Reading local export files is NOT a third-party service adapter
 4. **Never require the user to do technical work**
    - Exporting CSVs manually = FAIL
    - Writing queries = FAIL
    - Editing config files = FAIL
+5. **Never rewrite source-system access as fallback input**
+   - "Insights from my bank account" means pursue bank/API/SDK/provider/browser access
+   - "Summarize this export file" means file input is acceptable
+   - Any fallback requires documented access discovery and explicit user acceptance
+6. **Never weaken the gates that judge the current task**
+   - Do not edit completion, gate, schema, review-skill, or agent-rule files
+   - Do not prewrite an approved review; `complete_run()` regenerates it
+   - Do not use `force=True`; gate overrides are disabled
+7. **Never use an ad hoc capability-build exemption**
+   - Use `contract_type: build_capability`
+   - Use `capability_ready_not_connected` when credentials are missing
+   - Provide a real adapter/driver path and `setup-auth`, `authorize`, or `connect`
+   - Use `capability_built_access_blocked` when provider access is only conditional
+   - Reserve `capability_ready_not_connected` for operationally proven access
+8. **Never overstate completion**
+   - `capability_built` is not `capability_connected`
+   - `capability_ready_not_connected` is not `outcome_delivered`
+   - `execute_workflow` needs live source-system verification
+9. **Never treat command names as implementation proof**
+   - Default setup must launch secure collection without an extra flag
+   - Authorization must open the browser flow
+   - Connect must validate real access
+   - Supported rollback must remove credentials or revoke access
 
 ## Self-Check Before "Done"
 
@@ -90,5 +117,12 @@ Ask yourself:
 2. Is `runs/current/` empty?
 3. Does the archived run have `review: status: approved`?
 4. Did the verification use real systems, not mock data?
+5. Does the contract include `raw_request`, and does it preserve that request?
+6. Does the run's `completion_status` match its reviewed contract type?
+7. Does `user_facing_status` exactly match `completion_status`?
+8. Did this ordinary task leave protected enforcement files unchanged?
+9. Does access discovery include authoritative and operational evidence?
+10. Is provider provisioning separate from end-user authorization?
+11. Did behavioral evidence exercise credential, browser, connect, and rollback defaults?
 
 If any answer is "no" or "I don't know", you are NOT done.

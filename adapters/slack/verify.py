@@ -36,7 +36,7 @@ def verify_channel_access(channel_id: str) -> dict:
 
     try:
         # Try to read channel history
-        msg = adapter.get_message(channel_id, "0")  # Will return None but verifies access
+        adapter.get_message(channel_id, "0")  # Will return None but verifies access
         return {
             "status": "accessible",
             "channel": channel_id,

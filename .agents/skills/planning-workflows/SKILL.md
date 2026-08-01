@@ -32,6 +32,9 @@ Never immediately generate a monolithic script.
 7. Classify all side effects
 8. Design verification strategy
 9. Document rollback approach
+10. For source-system/account requests, document access discovery before any fallback
+11. Plan credential setup and connection as executable driver commands
+12. Confirm the plan does not alter framework enforcement unless contract type is `framework_change`
 
 ## Discovery Order
 
@@ -85,6 +88,24 @@ side_effects:
     scope: external
     approval: preview-required
 
+access_discovery:
+  delegated_provider:
+    status: conditionally_available | available | operator_blocked
+    operationally_obtainable: true | false
+    evidence: [<official and operational evidence>]
+    blockers: []
+
+provider_provisioning:
+  provider: <name>
+  status: not_required | ready | agent_action_required | user_action_required | operator_blocked
+  user_work_type: none | basic_consent | technical | commercial_approval
+  agent_can_complete: true | false
+  authorization_mode: none | secret_collection | browser_oauth | secret_and_browser
+  stores_local_credentials: true | false
+  creates_external_grant: true | false
+  required_actions: []
+  evidence: []
+
 verification:
   strategy: retrieve-and-compare
   checks: [message_exists, content_matches]
@@ -93,6 +114,25 @@ rollback:
   supported: true | partial | false
   method: <description>
 ```
+
+## Contract-Type Plan
+
+The plan must state the contract type, target completion status, and stopping
+condition.
+
+- `build_capability`: build and test reusable components. If credentials are
+  missing, include `setup-auth`, `authorize`, or `connect`, record the missing
+  state, and stop at `capability_ready_not_connected` only when provider access
+  and provisioning are operationally ready. Otherwise stop at
+  `capability_built_access_blocked`.
+- `connect_capability`: run the credential flow and verify a real external read.
+- `execute_workflow`: run the connected capability and verify the requested
+  real-world outcome.
+- `framework_change`: reserved for explicit PocketOps framework/protocol work.
+
+Never solve an ordinary task by editing `AGENTS.md`, `.agents/`, `pocketops/`,
+or `scripts/verify`. A required enforcement change is separate
+`framework_change` work.
 
 ## Build Order
 
@@ -105,10 +145,32 @@ When creating components, build inside-out:
 
 Each layer can be tested before the next depends on it.
 
+## Manual Fallback Rule
+
+If the user asks for data from a source system or account, do not choose manual
+fallback input as the primary plan. First evaluate:
+
+- Official API
+- Vendor SDK or CLI
+- Browser-assisted authorization or retrieval
+- Credential collection/setup flow
+
+Fallback is valid only when the user explicitly requested that input mode or
+explicitly accepts a reduced scope after access discovery. Mark it in the
+contract with `source_system_request`, `fallback_mode`, and the access discovery
+statuses.
+
+Provider/developer onboarding is not end-user authorization. Record commercial
+approval, developer accounts, product enablement, redirect registration, and
+similar prerequisites under `provider_provisioning`. Technical or commercial
+user work prevents `capability_ready_not_connected`.
+
 ## Handoff
 
 1. Save plan to `plans/active/<request_id>-plan.md`
 2. Proceed to `managing-dependencies` if installs needed
 3. Proceed to `building-transports` if new transports needed
 4. Proceed to `building-adapters` if new adapters needed
+   - **This is the critical skill** - access discovery, auth flows, and integration
+   - Consider running in a sub-agent for complex integrations
 5. Proceed to `building-drivers` for workflow assembly
