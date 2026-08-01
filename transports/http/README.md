@@ -126,7 +126,7 @@ auth = AuthConfig.basic("username", "password")
 ### API Key
 
 ```python
-auth = AuthConfig.api_key("your-key", header="X-API-Key")
+auth = AuthConfig.from_api_key("your-key", header="X-API-Key")
 # Adds: X-API-Key: your-key
 ```
 

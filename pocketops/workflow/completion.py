@@ -20,7 +20,7 @@ from typing import Optional, List
 from pocketops.gates import Phase, GateRegistry, GateResult
 
 # Import gate implementations so decorators register checks before transitions.
-import pocketops.gates.checks  # noqa: F401
+import pocketops.gates.checks  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
 
 _SOURCE_SYSTEM_REQUEST_TERMS = (
@@ -80,7 +80,7 @@ _MISSING_CREDENTIAL_STATUSES = {
 class RunCreationError(Exception):
     """Raised when run creation fails."""
 
-    def __init__(self, message: str, details: dict = None):
+    def __init__(self, message: str, details: dict | None = None):
         self.message = message
         self.details = details or {}
         super().__init__(message)
@@ -89,7 +89,7 @@ class RunCreationError(Exception):
 class CompletionError(Exception):
     """Raised when completion is blocked by a gate."""
 
-    def __init__(self, gate_name: str, message: str, details: dict = None):
+    def __init__(self, gate_name: str, message: str, details: dict | None = None):
         self.gate_name = gate_name
         self.message = message
         self.details = details or {}
@@ -149,8 +149,8 @@ def _git_revision(project_root: Path) -> str:
 def create_run(
     contract_id: str,
     driver: Optional[str] = None,
-    effects: List[dict] = None,
-    inputs: dict = None,
+    effects: List[dict] | None = None,
+    inputs: dict | None = None,
     project_root: Optional[str | Path] = None,
 ) -> RunRecord:
     """
@@ -563,8 +563,6 @@ def _run_reviewing_contracts(run_data: dict, project_root: Path) -> dict:
 
     # Check 0: Plan file exists - was planning phase completed?
     contract_id = run_data.get("contract_id") or run_data.get("plan", {}).get("contract_id")
-    plan_file_path = run_data.get("plan_file") or run_data.get("plan", {}).get("file")
-
     plans_dir = project_root / "plans" / "active"
     contract_exists = False
     contract = {}
@@ -1326,8 +1324,8 @@ def check_completion_ready(
     project_root = Path(project_root) if project_root else _find_project_root()
     runs_dir = project_root / "runs" / "current"
 
-    # Load run file
-    run_file, run_data = _load_run_file(runs_dir, run_id)
+    # Validate that the run exists before checking transition gates.
+    _load_run_file(runs_dir, run_id)
 
     # Build context
     context = {

@@ -14,7 +14,7 @@ import sys
 import inspect
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Union
+from typing import Any, ClassVar, Union, cast
 
 
 class LayerViolationError(ImportError):
@@ -215,8 +215,8 @@ class LayerImportGuard:
     This catches dynamic imports that AST analysis would miss.
     """
 
-    _instance = None
-    _installed = False
+    _instance: ClassVar["LayerImportGuard | None"] = None
+    _installed: ClassVar[bool] = False
 
     def __init__(self):
         self.enabled = True
@@ -295,10 +295,12 @@ def install_import_guard() -> LayerImportGuard:
         The guard instance (can be used to temporarily disable with guard.enabled = False)
     """
     if LayerImportGuard._installed:
-        return LayerImportGuard._instance
+        instance = LayerImportGuard._instance
+        if instance is not None:
+            return instance
 
     guard = LayerImportGuard()
-    sys.meta_path.insert(0, guard)
+    sys.meta_path.insert(0, cast(Any, guard))
     LayerImportGuard._instance = guard
     LayerImportGuard._installed = True
 

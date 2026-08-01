@@ -25,7 +25,7 @@ from pocketops.schemas import (
 class ManifestLoadError(Exception):
     """Raised when a manifest fails to load or validate."""
 
-    def __init__(self, path: str, kind: str, message: str, details: list[str] = None):
+    def __init__(self, path: str, kind: str, message: str, details: list[str] | None = None):
         self.path = path
         self.kind = kind
         self.message = message

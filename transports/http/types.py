@@ -63,7 +63,7 @@ class AuthConfig:
         return cls(type="basic", username=username, password=password)
 
     @classmethod
-    def api_key(cls, key: str, header: str = "X-API-Key") -> "AuthConfig":
+    def from_api_key(cls, key: str, header: str = "X-API-Key") -> "AuthConfig":
         """Create API key auth."""
         return cls(type="api_key", api_key=key, header_name=header)
 
